@@ -1,0 +1,4 @@
+
+0 09 * * * sudo reboot
+@reboot cd /home/teamlary/gitHubRepos/methaneSensing/firmware/xu4Mqtt && sudo ./sudoRun.sh
+
