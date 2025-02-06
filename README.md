@@ -6,8 +6,9 @@ Contains firmware to run the ESPEC BTL433 Chmaber
 
 ### The water supply 
 * Pressurize the tank to 18 psi using an air pump
-* Fill in the tank
-* Connect the appropriate hoses
+* Fill in the tank (5% Distilled water)
+* Connect the appropriate tubing
+* Turn the pump on using the toggle switch on top
 
 ### Dry Air Purge 
 
