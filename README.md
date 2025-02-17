@@ -19,4 +19,7 @@ The chamber can handle 2 different modes. Firstly the static mode where you can 
 
 ** FYI: Make sure humidity mode is enabled if planning on working with assigned humidities. 
 
+## Firmware 
+Check logs to examine what needs to be put on influx - 
+How can I carefully control the chamber to achive the walk in Temperature and Humidity space 
 
