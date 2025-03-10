@@ -1,53 +1,54 @@
 import json, requests
 import time
 
+import json, requests
 rsp = requests.get(
-    "http://192.168.20.128/api/v4/",
+    "http://192.168.20.113/api/v4/chambers/1/operations",
     headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzk4NTE4OTMsIm5iZiI6MTczOTg1MTg5MywianRpIjoiNmY1MmZlNTItYTljYi00NzA2LTg1YmQtNzg1ZWFiNGYxZjJiIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.eRfrrVUtq9BD0tZH7nwzhsHHNQ0i479Tu668B_pmf2E"
     },
 )
 data = json.dumps(rsp.json(), indent=4)
 print(f"StatusCode={rsp.status_code}\n\n{data}")
 
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/",
+#     headers={
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+#     },
+# )
+# data = json.dumps(rsp.json(), indent=4)
+# print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/1",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/1",
+#     headers={
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+#     },
+# )
+# data = json.dumps(rsp.json(), indent=4)
+# print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/1",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/1",
+#     headers={
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+#     },
+# )
+# data = json.dumps(rsp.json(), indent=4)
+# print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/1/constants",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/1/constants",
+#     headers={
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+#     },
+# )
+# data = json.dumps(rsp.json(), indent=4)
+# print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
 # import json, requests

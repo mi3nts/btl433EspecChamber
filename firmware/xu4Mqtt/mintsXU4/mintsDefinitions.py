@@ -1,7 +1,7 @@
 
 from getmac import get_mac_address
 import serial.tools.list_ports
-
+import yaml
 
 def findPort(find):
     ports = list(serial.tools.list_ports.comports())
@@ -149,10 +149,13 @@ inir2me5Port          = find_serial_port_by_location('1-1.2')
 sjh5Port              = find_serial_port_by_location('1-1.3')
 
 
+
 # For MQTT 
 mqttOn                = True
 
-mqttCredentialsFile   = 'mintsXU4/credentials.yml'
+credentialsFile       = 'mintsXU4/credentials.yml'
+
+
 hostsFile             = 'mintsXU4/hosts.yml'
 locationsFile         = 'mintsXU4/locations.yml'
 
@@ -161,6 +164,10 @@ mqttPort              =  8883  # Secure port
 
 gpsPort               = findPort("GPS/GNSS Receiver")
 
+
+
+credentials     = \
+            yaml.load(open(credentialsFile),Loader=yaml.FullLoader)
 
 
 

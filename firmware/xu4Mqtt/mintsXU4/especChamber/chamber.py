@@ -2,6 +2,7 @@ import json, requests
 import time
 import sys
 from datetime import datetime
+import requests
 
 # Create a class named chamber where it initially checks 
 # the availabiltu of the chamber and then creates an object 
@@ -11,26 +12,40 @@ from datetime import datetime
 # Have 2 sensor IDs one with variable values and one with 
 # default constants 
 
-def get_available_chamber_index(url, token, chamberWanted =0):
+
+#  This function just reads how many chambers are availbale 
+def get_available_chamber_index(url, token, chamberWanted=0, timeout=5):
     """
-    Retrieves the available chamber index from the API.
+    Retrieves the available chamber index from the API with a timeout and handles keyboard interrupts.
 
     :param url: Base URL of the API.
     :param token: Authorization token.
+    :param chamberWanted: Index of the chamber to retrieve (default is 0).
+    :param timeout: Maximum time (in seconds) to wait for the API response (default is 5 seconds).
     :return: The available chamber index or None if not found.
     """
     headers = {"Authorization": f"Bearer {token}"}
-    rsp = requests.get(f"{url}/api/v4/", headers=headers)
 
-    if rsp.status_code == 200:
-        data = rsp.json()
-        chambers = data.get("chambers", {}).get("uri", [])
-        print(chambers)
-        if chambers:
-            # Extract the chamber index from the URI
-            chamber_uri = chambers[chamberWanted]
-            chamber_index = chamber_uri.strip("/").split("/")[-1]
-            return int(chamber_index)
+    try:
+        rsp = requests.get(f"{url}/api/v4/", headers=headers, timeout=timeout)
+
+        if rsp.status_code == 200:
+            data = rsp.json()
+            chambers = data.get("chambers", {}).get("uri", [])
+            print(chambers)
+            if chambers and chamberWanted < len(chambers):
+                # Extract the chamber index from the URI
+                chamber_uri = chambers[chamberWanted]
+                chamber_index = chamber_uri.strip("/").split("/")[-1]
+                return int(chamber_index)
+
+    except requests.exceptions.Timeout:
+        print("Request timed out.")
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+    except KeyboardInterrupt:
+        print("\nOperation canceled by user.")
+        return None  # Gracefully handle exit
 
     return None
 
@@ -58,14 +73,14 @@ class Chamber:
             # Print data for debugging
             print(json.dumps(data, indent=4))
 
-            # Extract and parse datetime
-            self.extract_datetime(data)
-            self.extract_constant_key(data)
-            self.extract_temp(data)
-            self.extract_humidity(data)
-            self.extract_time_signal_1(data)
-            self.extract_dap(data)    
-            self.extract_operation(data)    
+            # # Extract and parse datetime
+            # self.extract_datetime(data)
+            # self.extract_constant_key(data)
+            # self.extract_temp(data)
+            # self.extract_humidity(data)
+            # self.extract_time_signal_1(data)
+            # self.extract_dap(data)    
+            # self.extract_operation(data)    
 
 
 
@@ -260,19 +275,4 @@ class Chamber:
 
             return False, "";
 
-# Example usage:
-url = "http://192.168.20.113"
-token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-
-# Check for available chamber index
-chamber_index = get_available_chamber_index(url, token)
-
-if chamber_index is None:
-    print("No available chamber found. Exiting...")
-    sys.exit(1)  # Quit the program
-
-# Create the chamber object only if an index is available
-chamber = Chamber(url, chamber_index, token)
-# data = chamber.execute_command("")
-# print(json.dumps(data, indent=4))
 
