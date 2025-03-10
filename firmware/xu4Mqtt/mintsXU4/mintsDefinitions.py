@@ -64,8 +64,6 @@ def findAirmarPort():
             ozonePort.append(str(p[0]).split(" ")[0])
     return ozonePort
   
-
-
 def find_serial_port_by_location(target_location):
     """Finds the serial port associated with a given USB physical location.
 
@@ -86,10 +84,6 @@ def find_serial_port_by_location(target_location):
 
     print(f"No port found for location: {target_location}")
     return None
-
-
-
-
 
 def findMacAddress():
     macAddress= get_mac_address(interface="eth0")
@@ -114,8 +108,9 @@ def findMacAddress():
 
     return "xxxxxxxx"
 
-
 macAddress            = findMacAddress()
+print(macAddress)
+
 
 
 baseFolder                = "/home/teamlary/"
@@ -123,6 +118,16 @@ baseFolder                = "/home/teamlary/"
 if macAddress == "2ed3ff75af22":
     baseFolder                = "/Users/lakitha/"
 
+
+if macAddress == "2ed3ff75af22":
+    baseFolder                = "/Users/lakitha/"
+
+if macAddress == "ae5abeda5763":
+    baseFolder                = "/Users/lakitha/"
+
+
+if macAddress == "9a0ed1b5378d":
+    baseFolder                = "/Users/lakitha/"
 
 
 dataFolderReference       = baseFolder + "mintsData/reference"
@@ -136,17 +141,9 @@ gpsOnJsonFile             = baseFolder + "statusFiles/gpsOn.json"
 gpsOffJsonFile            = baseFolder + "statusFiles/gpsOff.json"
 
 
-# duePort               = findDuePort()
-# nanoPorts             = findNanoPorts()
-# ozonePort             = findOzonePort()
-# # ipsPorts              = findIPSPorts()
-# show2Port             = findPort("CP2104 USB to UART Bridge Controller")
 
 
 latestOn              = True
-airmarPort            = find_serial_port_by_location('1-1.1')
-inir2me5Port          = find_serial_port_by_location('1-1.2')
-sjh5Port              = find_serial_port_by_location('1-1.3')
 
 
 
@@ -179,11 +176,6 @@ if __name__ == "__main__":
     print("Data Folder Raw            : {0}".format(dataFolder))
     print("Latest On                  : {0}".format(latestOn))
     print("MQTT On                    : {0}".format(mqttOn))
-    print("MQTT Credentials File      : {0}".format(mqttCredentialsFile))
+    print("Credentials File           : {0}".format(credentialsFile))
     print("MQTT Broker and Port       : {0}, {1}".format(mqttOn,mqttPort))
     
-    print()
-    print("#-------------------------------------------#")
-    print("Airmar Port                : {0}".format(airmarPort))
-    print("SJH5 Port                  : {0}".format(sjh5Port))
-    print("INIR2ME5 Port              : {0}".format(inir2me5Port))

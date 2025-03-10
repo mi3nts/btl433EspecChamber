@@ -16,7 +16,7 @@ dataFolderReference = mD.dataFolderReference
 macAddress          = mD.macAddress
 mqttPort            = mD.mqttPort
 mqttBroker          = mD.mqttBroker
-mqttCredentialsFile = mD.mqttCredentialsFile
+
 
 # FOR MQTT 
 credentials = mD.credentials

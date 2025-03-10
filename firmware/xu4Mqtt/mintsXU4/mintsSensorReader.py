@@ -12,7 +12,7 @@
 #   https://github.com/mi3nts
 #   http://utdmints.info/
 #  ***************************************************************************
-
+import pprint
 import serial
 import datetime
 import os
@@ -79,7 +79,7 @@ def sensorFinisher(dateTime,sensorName,sensorDictionary):
 
     print("-----------------------------------")
     print(sensorName)
-    print(sensorDictionary)
+    pprint.pprint(sensorDictionary)
 
 
 def sensorFinisherReference(dateTime,sensorName,sensorDictionary):

@@ -19,7 +19,6 @@ from mintsXU4 import mintsDefinitions as mD
 credentials         = mD.credentials
 token               = credentials['chamber']['token']  
 
-
 # Example usage:
 url   = "http://192.168.20.113"
 
