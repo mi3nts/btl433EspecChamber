@@ -11,6 +11,8 @@ rsp = requests.get(
 data = json.dumps(rsp.json(), indent=4)
 print(f"StatusCode={rsp.status_code}\n\n{data}")
 
+# time.sleep(5)
+# print("CHAMBERS")
 # rsp = requests.get(
 #     "http://192.168.20.128/api/v4/chambers/",
 #     headers={
@@ -20,7 +22,8 @@ print(f"StatusCode={rsp.status_code}\n\n{data}")
 # data = json.dumps(rsp.json(), indent=4)
 # print(f"StatusCode={rsp.status_code}\n\n{data}")
 
-
+# time.sleep(5)
+# print("CHAMBERS ID 1")
 # rsp = requests.get(
 #     "http://192.168.20.128/api/v4/chambers/1",
 #     headers={
@@ -31,16 +34,8 @@ print(f"StatusCode={rsp.status_code}\n\n{data}")
 # print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
-# rsp = requests.get(
-#     "http://192.168.20.128/api/v4/chambers/1",
-#     headers={
-#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-#     },
-# )
-# data = json.dumps(rsp.json(), indent=4)
-# print(f"StatusCode={rsp.status_code}\n\n{data}")
-
-
+# time.sleep(5)
+# print("CHAMBERS ID 1: Constants")
 # rsp = requests.get(
 #     "http://192.168.20.128/api/v4/chambers/1/constants",
 #     headers={
@@ -50,58 +45,19 @@ print(f"StatusCode={rsp.status_code}\n\n{data}")
 # data = json.dumps(rsp.json(), indent=4)
 # print(f"StatusCode={rsp.status_code}\n\n{data}")
 
-
-# import json, requests
-# body = {
-#     "temp": {
-#         "group": "loop",
-#         "set_value": 15,
-#         "range": [
-#             -20,
-#             180
-#         ]
-#     },
-#     "humi": {
-#         "group": "loop",
-#         "enable": true,
-#         "set_value": 61,
-#         "range": [
-#             10,
-#             95
-#         ]
-#     },
-#     "time_signal_1": {
-#         "group": "output",
-#         "value": true
-#     },
-#     "dap": {
-#         "group": "output",
-#         "value": false
-#     }
-# }
-# rsp = requests.post(
-#     "http://192.168.20.128/api/v4/chambers/1/constants",
+# time.sleep(5)
+# print("CHAMBERS ID 1: Conditions")
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/1/conditions",
 #     headers={
-#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo",
-#         "Content-Type": "application/json;charset=utf-8"
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
 #     },
-#     data=body
 # )
 # data = json.dumps(rsp.json(), indent=4)
 # print(f"StatusCode={rsp.status_code}\n\n{data}")
 
-import json, requests
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/1/conditions",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
-
-
-import json, requests
+time.sleep(5)
+print("CHAMBERS ID 1: Conditions + Status")
 rsp = requests.get(
     "http://192.168.20.128/api/v4/chambers/1/conditions/status",
     headers={
@@ -112,6 +68,9 @@ data = json.dumps(rsp.json(), indent=4)
 print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
+
+time.sleep(5)
+print("CHAMBERS ID 1: Conditions + TEMP")
 rsp = requests.get(
     "http://192.168.20.128/api/v4/chambers/1/conditions/temp",
     headers={
@@ -121,7 +80,8 @@ rsp = requests.get(
 data = json.dumps(rsp.json(), indent=4)
 print(f"StatusCode={rsp.status_code}\n\n{data}")
 
-
+time.sleep(5)
+print("CHAMBERS ID 1: Conditions + HUMI")
 rsp = requests.get(
     "http://192.168.20.128/api/v4/chambers/1/conditions/humi",
     headers={
@@ -132,109 +92,115 @@ data = json.dumps(rsp.json(), indent=4)
 print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/1/conditions/time_signal_1",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/1/conditions/time_signal_1",
+#     headers={
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+#     },
+# )
+# data = json.dumps(rsp.json(), indent=4)
+# print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/1/conditions/dap",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/1/conditions/dap",
+#     headers={
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+#     },
+# )
+# data = json.dumps(rsp.json(), indent=4)
+# print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/1/operations",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/1/operations",
+#     headers={
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+#     },
+# )
+# data = json.dumps(rsp.json(), indent=4)
+# print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
-rsp = requests.get(
-    "http://192.168.20.128/api/v4/chambers/1/operations/start_constant",
-    headers={
-        "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
-    },
-)
-data = json.dumps(rsp.json(), indent=4)
-print(f"StatusCode={rsp.status_code}\n\n{data}")
-
-
-
-
-# Set Constant 
-import requests
-
-# API details
-url = "http://192.168.20.128/api/v4/chambers/1/constants/constant_1"
-headers = {
-    "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo",
-    "Content-Type": "application/json"
-}
-
-# JSON payload
-data = {
-    "temp": {"group": "loop", "set_value": 15, "range": [-20, 180]},
-    "humi": {"group": "loop", "enable": True, "set_value": 61, "range": [10, 95]},
-    "time_signal_1": {"group": "output", "value": True},
-    "dap": {"group": "output", "value": False}
-}
-
-try:
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
-    print("Response:", response.json())
-except requests.exceptions.HTTPError as err:
-    print("HTTP Error:", err)
-except Exception as e:
-    print("Error:", e)
-
-
-time.sleep(1)
-
-
-url = "http://192.168.20.128/api/v4/chambers/1/operations/start_constant"
-headers = {
-    "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo",
-    "Content-Type": "application/json;charset=utf-8"
-}
-data = {"group": "constant"}
-
-try:
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
-    print("Success:", response.json())
-except requests.exceptions.RequestException as e:
-    print("Error:", e)
+# rsp = requests.get(
+#     "http://192.168.20.128/api/v4/chambers/1/operations/start_constant",
+#     headers={
+#         "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo"
+#     },
+# )
+# data = json.dumps(rsp.json(), indent=4)
+# print(f"StatusCode={rsp.status_code}\n\n{data}")
 
 
 
-time.sleep(60)
+
+# # Set Constant 
+# import requests
+
+# # Print Reading Current Command 
+
+
+# # API details
+# url = "http://192.168.20.128/api/v4/chambers/1/constants/constant_1"
+# headers = {
+#     "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo",
+#     "Content-Type": "application/json"
+# }
+
+
+# data = {
+#     "temp": {"group": "loop", "set_value": 15, "range": [-20, 180]},
+#     "humi": {"group": "loop", "enable": True, "set_value": 61, "range": [10, 95]},
+#     "time_signal_1": {"group": "output", "value": True},
+#     "dap": {"group": "output", "value": False}
+# }
+
+# print("TEST 1")
+# try:
+#     response = requests.post(url, headers=headers, json=data)
+#     print(response)
+#     response.raise_for_status()
+#     print("Response:", response.json())
+# except requests.exceptions.HTTPError as err:
+#     print("HTTP Error:", err)
+# except Exception as e:
+#     print("Error:", e)
+
+
+# time.sleep(10)
+# print("TEST 2")
+
+
+# url = "http://192.168.20.128/api/v4/chambers/1/operations/start_constant"
+# headers = {
+#     "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo",
+#     "Content-Type": "application/json;charset=utf-8"
+# }
+# data = {"group": "constant"}
+
+# try:
+#     response = requests.post(url, headers=headers, json=data)
+#     response.raise_for_status()
+#     print("Success:", response.json())
+# except requests.exceptions.RequestException as e:
+#     print("Error:", e)
 
 
 
-url = "http://192.168.20.128/api/v4/chambers/1/operations/stop_chamber"
-headers = {
-    "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo",
-    "Content-Type": "application/json;charset=utf-8"
-}
-data = {"group": "standby"}
+# time.sleep(60)
 
-response = requests.post(url, headers=headers, json=data)
 
-if response.ok:
-    print("Success:", response.json())
-else:
-    print("Error:", response.status_code, response.text)
+
+# url = "http://192.168.20.128/api/v4/chambers/1/operations/stop_chamber"
+# headers = {
+#     "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzg4MjMxNTMsIm5iZiI6MTczODgyMzE1MywianRpIjoiYWZmOGE5ODYtOTc0Ny00MGQ0LWFjYjgtYzI0NGY4NzU3ZmJmIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.zWMTeiVwyahVfqFhIva2z5-I00PwGBFBnj4YONDvQgo",
+#     "Content-Type": "application/json;charset=utf-8"
+# }
+# data = {"group": "standby"}
+
+# response = requests.post(url, headers=headers, json=data)
+
+# if response.ok:
+#     print("Success:", response.json())
+# else:
+#     print("Error:", response.status_code, response.text)
