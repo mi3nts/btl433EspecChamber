@@ -6,6 +6,12 @@ from collections import OrderedDict
 from mintsXU4 import mintsSensorReader as mSR
 import requests
 import pprint
+
+import logging
+from typing import List, Dict  # For Python 3.8 compatibility
+
+
+
 # Create a class named chamber where it initially checks 
 # the availabiltu of the chamber and then creates an object 
 # with the input values the available chamber will give 
@@ -82,9 +88,14 @@ class Chamber:
             1: "Stop and Stand By",
             10: "Temperature Set",
             11: "Humidity Set",
+            12: "Temperature and Humidity Set",            
             20: "Constant Run",
             30: "Operation Set",
             40: "Operation Run",
+            50: "Routine Initiated",
+            51: "Routine Started",
+            52: "Routine Incrimented",            
+
         }
 
         self.get_and_write_summary(expanded=True)
@@ -97,7 +108,7 @@ class Chamber:
     def get_and_write_summary(self, expanded=False):
        # Execute command and retrieve data
         self.validity, data = self.execute_command("")
-        print(data)
+        # print(data)
 
         if self.validity:
             print("Valid Chamber Data found")
@@ -379,6 +390,49 @@ class Chamber:
 
         return success
     
+    # def set_temperature_and_value(self, temp_value, humi_value):
+    #     """
+    #     Updates the temperature set value.
+
+    #     :param temp_value: The new temperature set value.
+    #     """
+    #     data = {
+    #         "temp": {
+    #             "group": "loop",
+    #             "set_value": temp_value,
+    #             "range": [-20, 180]
+    #         }
+    #         ,
+    #         "humi": {
+    #             "group": "loop",
+    #             "enable": True,
+    #             "set_value": humi_value,
+    #             "range": [10, 95]  # Assuming valid humidity range
+    #         }
+    #     }
+
+    #     success, response          = self.execute_command("constants/constant_1", data=data, method="POST")
+    #     pprint.pprint(response)
+    #     time.sleep(1)
+
+    #     dateTime          = datetime.now(timezone.utc)
+    #     sensorIDPost      = "CHNG"
+
+    #     self.change_ID    = 12  # Change ID for Temperature Set
+
+    #     # Log the change
+    #     sensorDictionary = OrderedDict([
+    #         ("dateTime"     , str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+    #         ("changeID"     , self.change_ID),
+    #         ("changeLabel"  , self.change_mapping.get(self.change_ID)),
+    #         ("newValue"     , temp_value),
+    #         ("success"      , self.bool_to_int(success)),
+    #     ])
+    #     mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+
+    #     return success
+
+
     def start_constant_mode(self):
         """
         Starts the chamber in Constant Mode.
@@ -421,20 +475,186 @@ class Chamber:
         self.get_and_write_summary()
 
 
-
-# set_temperature
-
-
-# set_humidity  
-# activate_constant_mode
-# write_change t
+    def change_temperature_and_humdity(self,temp_value,humi_value):
+        self.set_temperature_value( temp_value)
+        self.set_humidity_value(humi_value)
+        self.start_constant_mode()
+        self.get_and_write_summary()
 
 
-# Constant Mode
-# Get the constant mode for a specified mode.
-# curl -X POST \
-#      -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3Mzk4NTE4OTMsIm5iZiI6MTczOTg1MTg5MywianRpIjoiNmY1MmZlNTItYTljYi00NzA2LTg1YmQtNzg1ZWFiNGYxZjJiIiwiaWRlbnRpdHkiOiJhZG1pbiIsImZyZXNoIjpmYWxzZSwidHlwZSI6ImFjY2VzcyIsInVzZXJfY2xhaW1zIjp7InJvbGVzIjpbImNvbmRpdGlvbnNfcnciLCJvcGVyYXRpb25zX3J3IiwiZmVhdHVyZXNfcnciLCJjb25zdGFudHNfcnciLCJwcm9ncmFtc19ydyIsInNldHVwX3J3Il19fQ.eRfrrVUtq9BD0tZH7nwzhsHHNQ0i479Tu668B_pmf2E" \
-#      -H "Content-Type: application/json;charset=utf-8" \
-#      -d '{"temp":{"group":"loop","set_value":22,"range":[-20,180]},"humi":{"group":"loop","enable":true,"set_value":44,"range":[10,95]},"time_signal_1":{"group":"output","value":true},"dap":{"group":"output","value":false}}' \
-#      http://192.168.20.113/api/v4/chambers/1/constants/constant_1
+    class Routine:
+        """Routine for controlling temperature and humidity."""
 
+        def __init__(self,*,
+                    chamber, 
+                    major_variable: str,
+                    temperature_start: float,
+                    temperature_end: float,
+                    temperature_increment: float,
+                    temperature_padding: float,
+                    humidity_start: float,
+                    humidity_end: float,
+                    humidity_increment: float,
+                    humidity_padding: float,
+                    is_forced: bool,
+                    wait_time: int = 5):
+
+            if temperature_increment == 0 or humidity_increment == 0:
+                raise ValueError("Increment values cannot be zero.")
+            
+            # Check temperature increment direction
+            if (temperature_end - temperature_start) * temperature_increment < 0:
+                raise ValueError("Temperature increment direction does not match start and end values.")
+
+            # Check humidity increment direction
+            if (humidity_end - humidity_start) * humidity_increment < 0:
+                raise ValueError("Humidity increment direction does not match start and end values.")
+
+            if major_variable.lower() not in ["temperature", "humidity"]:
+                raise ValueError("major_variable must be 'temperature' or 'humidity'.")
+
+            self.major_variable = major_variable.lower()
+            self.temperature_start = temperature_start
+            self.temperature_end = temperature_end
+            self.temperature_increment = temperature_increment
+            self.temperature_padding = temperature_padding
+            self.humidity_start = humidity_start
+            self.humidity_end = humidity_end
+            self.humidity_increment = humidity_increment
+            self.humidity_padding = humidity_padding
+            self.is_forced = is_forced
+            self.wait_time = wait_time
+
+      
+            dateTime         = datetime.now(timezone.utc)
+            sensorIDPost     = "CHNG"
+            chamber.change_ID   = 50  # Change ID for Constant Mode Start
+
+            # Log the change
+            sensorDictionary = OrderedDict([
+                ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+                ("changeID"     , chamber.change_ID),
+                ("changeLabel"  , chamber.change_mapping.get(chamber.change_ID)),
+                ("newValue"     , -100),
+                ("success"      , 1),
+                ])
+
+            mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+            
+   
+            sensorIDPost     = "RTNINI"
+
+            # Log the change
+            sensorDictionary = OrderedDict([
+                ("dateTime"            ,  str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+                ("majorVariable"       ,  major_variable.lower()),
+                ("temperatureStart"    ,  temperature_start),
+                ("temperatureEnd"      ,  temperature_end),
+                ("temperatureIncrement",  temperature_increment),
+                ("temperaturePadding"  ,  temperature_padding),
+                ("humidityStart"       ,  humidity_start),
+                ("humidityEnd"         ,  humidity_end),
+                ("humidityIncrement"   ,  humidity_increment),
+                ("humidityPadding"     ,  humidity_padding),
+                ("isForced"            ,  chamber.bool_to_int(is_forced)),
+                ("waitTime"            ,  wait_time),
+            ])
+            mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+
+            self._generate_waypoints()
+
+        def _generate_waypoints(self) -> None:
+            """Generates the list of control waypoints."""
+            routine_log = []
+
+            temp_range = self._generate_range(self.temperature_start,
+                                            self.temperature_end,
+                                            self.temperature_increment)
+
+            humid_range = self._generate_range(self.humidity_start,
+                                            self.humidity_end,
+                                            self.humidity_increment)
+
+            print(f"Generating control routine. Major variable: {self.major_variable}")
+
+            if self.major_variable == "temperature":
+                for temp in temp_range:
+                    for humid in humid_range:
+                        entry = self._create_log_entry(temp, humid)
+                        routine_log.append(entry)
+            else:  # major_variable == "humidity"
+                for humid in humid_range:
+                    for temp in temp_range:
+                        entry = self._create_log_entry(temp, humid)
+                        routine_log.append(entry)
+
+            self.routine_log = routine_log
+            print("Waypoints generated.\n")
+
+        def _generate_range(self, start: float, end: float, step: float) -> List[float]:
+            """Helper to generate inclusive ranges safely."""
+            if step == 0:
+                raise ValueError("Step size cannot be zero.")
+            if (start < end and step < 0) or (start > end and step > 0):
+                raise ValueError("Step size sign does not move towards end value.")
+
+            range_list = []
+            current = start
+            max_iterations = 10000
+            iterations = 0
+
+            if step > 0:
+                while current <= end:
+                    range_list.append(round(current, 2))
+                    current += step
+                    iterations += 1
+                    if iterations > max_iterations:
+                        raise RuntimeError("Exceeded maximum iterations (possible infinite loop).")
+            else:
+                while current >= end:
+                    range_list.append(round(current, 2))
+                    current += step
+                    iterations += 1
+                    if iterations > max_iterations:
+                        raise RuntimeError("Exceeded maximum iterations (possible infinite loop).")
+
+            return range_list
+
+        def _create_log_entry(self, temperature: float, humidity: float) -> Dict:
+            """Creates a log entry with padding and control parameters."""
+            return {
+                'temperature': temperature,
+                'humidity': humidity,
+                'temperature_padding': self.temperature_padding,
+                'humidity_padding': self.humidity_padding,
+                'is_forced': self.is_forced,
+                'wait_time': self.wait_time
+            }
+
+        def print_routine(self) -> None:
+            """Prints the generated routine log."""
+            print("Routine Waypoints:")
+            for entry in self.routine_log:
+                print(entry)
+
+
+        def run_routine(self,chamber) -> None:
+            """Run the generated routine log."""
+            print("Routine Waypoints:")
+            for entry in self.routine_log:
+                print("--------------------------------------------------------------------------")
+                print("Setting Way Point: "+  str(entry))
+                # chamber.get_and_write_summary()
+                chamber.change_temperature_and_humdity(entry['temperature'],entry['humidity'])
+
+                while (abs(entry['temperature'] - chamber.temperature_process_value) > entry['temperature_padding'] or \
+                       abs(entry['humidity'] - chamber.humidity_process_value) > entry['humidity_padding']):
+                    
+                    print("Still Seeking Way Point: " + str(entry))
+                    time.sleep(10)
+                    chamber.get_and_write_summary()
+
+                print("Way point achieved: ")
+                
+
+            print("Routine Ran")
