@@ -95,8 +95,8 @@ class Chamber:
             50: "Routine Initiated",
             51: "Routine Started",
             52: "Routine Incrimented",            
-
         }
+
 
         self.get_and_write_summary(expanded=True)
 
@@ -152,13 +152,13 @@ class Chamber:
                 ("dateTime"             ,str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
                 ("hostIP"               ,str(self.url)),
                 ("chamberTime"          ,str(self.chamber_time)),                
-                ("operation"            ,str(self.operation)),          
+                ("operation"            ,int(self.operation)),          
                 ("operationLabel"       ,str(self.operationLabel)),             
                 ("programStep"          ,int(self.program_step)),          
                 ("programTime"          ,int(self.program_time)),       
                 ("programKey"           ,int(self.program_key)),       
                 ("programName"          ,str(self.program_name)),       
-                ("program"              ,str(self.program)),    
+                ("program"              ,int(self.program)),    
                 ("program_counters"     ,str(self.program_counters)),    
                 ("running"              ,int(self.running)),    
                 ])
@@ -525,16 +525,24 @@ class Chamber:
             self.is_forced = is_forced
             self.wait_time = wait_time
 
+
+            self.routine_mapping = {
+                0: "Routine Initiated",
+                1: "Routine Started",
+                2: "Routine Ended",            
+            }
+
+
       
-            dateTime         = datetime.now(timezone.utc)
-            sensorIDPost     = "CHNG"
-            chamber.change_ID   = 50  # Change ID for Constant Mode Start
+            dateTime          = datetime.now(timezone.utc)
+            sensorIDPost      = "RTNCHG"
+            self.change_ID = 0  
 
             # Log the change
             sensorDictionary = OrderedDict([
                 ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
-                ("changeID"     , chamber.change_ID),
-                ("changeLabel"  , chamber.change_mapping.get(chamber.change_ID)),
+                ("changeID"     , self.change_ID),
+                ("changeLabel"  , self.routine_mapping.get(self.change_ID)),
                 ("newValue"     , -100),
                 ("success"      , 1),
                 ])
@@ -542,7 +550,7 @@ class Chamber:
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
             
    
-            sensorIDPost     = "RTNINI"
+            sensorIDPost     = "RTNDT"
 
             # Log the change
             sensorDictionary = OrderedDict([
@@ -641,20 +649,77 @@ class Chamber:
         def run_routine(self,chamber) -> None:
             """Run the generated routine log."""
             print("Routine Waypoints:")
-            for entry in self.routine_log:
-                print("--------------------------------------------------------------------------")
-                print("Setting Way Point: "+  str(entry))
-                # chamber.get_and_write_summary()
-                chamber.change_temperature_and_humdity(entry['temperature'],entry['humidity'])
 
+            dateTime          = datetime.now(timezone.utc)
+            sensorIDPost      = "RTNCHG"
+            self.change_ID    = 1 
+
+            # Log the change
+            sensorDictionary = OrderedDict([
+                ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+                ("changeID"     , self.change_ID),
+                ("changeLabel"  , self.routine_mapping.get(self.change_ID)),
+                ("newValue"     , -100),
+                ("success"      , 1),
+                ])
+
+            mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+            
+
+            self.routine_length = len(self.routine_log)
+
+
+            self.routine_iteraion = 0
+
+            for entry in self.routine_log:
+                self.routine_iteraion = self.routine_iteraion +1
+                print("--------------------------------------------------------------------------")
+                print("Setting Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
+
+
+                dateTime          = datetime.now(timezone.utc)
+                sensorIDPost      = "RTNPRG"
+
+                # Log the change
+                sensorDictionary = OrderedDict([
+                    ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+                    ("rotuingPercentage" , 100*(self.routine_iteraion/self.routine_length)),
+                    ("rotuingIteration"  , self.routine_iteraion),
+                    ("rotuingLength"     , self.routine_length),
+                    ("success"           , 1),
+                    ])
+
+                mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+                chamber.change_temperature_and_humdity(entry['temperature'],entry['humidity'])
+                
+                
+                
+                # 
                 while (abs(entry['temperature'] - chamber.temperature_process_value) > entry['temperature_padding'] or \
                        abs(entry['humidity'] - chamber.humidity_process_value) > entry['humidity_padding']):
                     
-                    print("Still Seeking Way Point: " + str(entry))
+                    print("Still Seeking Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
                     time.sleep(10)
                     chamber.get_and_write_summary()
 
                 print("Way point achieved: ")
                 
+
+            dateTime          = datetime.now(timezone.utc)
+            sensorIDPost      = "RTNCHG"
+            self.change_ID    = 2 
+
+            # Log the change
+            sensorDictionary = OrderedDict([
+                ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+                ("changeID"     , self.change_ID),
+                ("changeLabel"  , self.routine_mapping.get(self.change_ID)),
+                ("newValue"     , -100),
+                ("success"      , 1),
+                ])
+
+            mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+            
+
 
             print("Routine Ran")

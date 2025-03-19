@@ -27,25 +27,3 @@ if chamber_index is None:
 chamber = Chamber(url, chamber_index, token)
 
 chamber.stop_chamber()
-time.sleep(10)
-
-# Running Routines 
-
-# routine = Chamber.Routine(
-#     chamber = chamber,
-#     major_variable="humidity",
-#     temperature_start=22,
-#     temperature_end=10,
-#     temperature_increment=-1,
-#     temperature_padding=1,
-#     humidity_start=50,
-#     humidity_end=40,
-#     humidity_increment=-3,
-#     humidity_padding=1,
-#     is_forced=True,
-#     wait_time=3
-# )
-
-# routine.print_routine()
-
-# routine.run_routine(chamber)
