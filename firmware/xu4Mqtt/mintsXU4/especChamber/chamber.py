@@ -640,6 +640,7 @@ class Chamber:
                 'temperature_padding': self.temperature_padding,
                 'humidity_padding': self.humidity_padding,
                 'is_forced': self.is_forced,
+                'still_time': self.still_time,       
                 'wait_time': self.wait_time
             }
 
@@ -729,7 +730,7 @@ class Chamber:
 
                 mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
 
-                time.sleep(self.still_time)
+                time.sleep(entry['still_time'])
                 
 
             dateTime          = datetime.now(timezone.utc)
