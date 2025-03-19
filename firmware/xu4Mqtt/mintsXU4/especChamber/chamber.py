@@ -568,6 +568,7 @@ class Chamber:
                 ("humidityIncrement"   ,  humidity_increment),
                 ("humidityPadding"     ,  humidity_padding),
                 ("isForced"            ,  chamber.bool_to_int(is_forced)),
+                ("stillTime"           ,  still_time),
                 ("waitTime"            ,  wait_time),
             ])
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)

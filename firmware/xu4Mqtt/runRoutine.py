@@ -34,9 +34,9 @@ time.sleep(10)
 routine = Chamber.Routine(
     chamber = chamber,
     major_variable="humidity",
-    temperature_start=25,
+    temperature_start=30,
     temperature_end=10,
-    temperature_increment=-5,
+    temperature_increment=-10,
     temperature_padding=1,
     humidity_start=50,
     humidity_end=40,
