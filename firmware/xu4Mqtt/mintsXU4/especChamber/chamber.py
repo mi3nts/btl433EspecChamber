@@ -497,6 +497,7 @@ class Chamber:
                     humidity_increment: float,
                     humidity_padding: float,
                     is_forced: bool,
+                    still_time: int = 10, 
                     wait_time: int = 5):
 
             if temperature_increment == 0 or humidity_increment == 0:
@@ -523,27 +524,29 @@ class Chamber:
             self.humidity_increment = humidity_increment
             self.humidity_padding = humidity_padding
             self.is_forced = is_forced
-            self.wait_time = wait_time
+            self.still_time = still_time
+            self.wait_time  = wait_time
 
 
             self.routine_mapping = {
                 0: "Routine Initiated",
                 1: "Routine Started",
                 2: "Routine Ended",            
+                10: "Routine Holding",            
             }
 
 
       
-            dateTime          = datetime.now(timezone.utc)
-            sensorIDPost      = "RTNCHG"
-            self.change_ID = 0  
-
+            dateTime              = datetime.now(timezone.utc)
+            sensorIDPost          = "RTNCHG"
+            self.change_ID        = 0  
+            self.routine_iteraion = 0
             # Log the change
             sensorDictionary = OrderedDict([
                 ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
                 ("changeID"     , self.change_ID),
                 ("changeLabel"  , self.routine_mapping.get(self.change_ID)),
-                ("newValue"     , -100),
+                ("iteration"    , self.routine_iteraion),
                 ("success"      , 1),
                 ])
 
@@ -649,6 +652,8 @@ class Chamber:
         def run_routine(self,chamber) -> None:
             """Run the generated routine log."""
             print("Routine Waypoints:")
+            self.routine_iteraion = 0
+
 
             dateTime          = datetime.now(timezone.utc)
             sensorIDPost      = "RTNCHG"
@@ -659,7 +664,7 @@ class Chamber:
                 ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
                 ("changeID"     , self.change_ID),
                 ("changeLabel"  , self.routine_mapping.get(self.change_ID)),
-                ("newValue"     , -100),
+                ("iteration"    , self.routine_iteraion),
                 ("success"      , 1),
                 ])
 
@@ -669,7 +674,7 @@ class Chamber:
             self.routine_length = len(self.routine_log)
 
 
-            self.routine_iteraion = 0
+
 
             for entry in self.routine_log:
                 self.routine_iteraion = self.routine_iteraion +1
@@ -702,7 +707,28 @@ class Chamber:
                     time.sleep(10)
                     chamber.get_and_write_summary()
 
+
+
                 print("Way point achieved: ")
+
+            
+
+                dateTime          = datetime.now(timezone.utc)
+                sensorIDPost      = "RTNCHG"
+                self.change_ID    = 10 
+
+                # Log the change
+                sensorDictionary = OrderedDict([
+                    ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+                    ("changeID"     , self.change_ID),
+                    ("changeLabel"  , self.routine_mapping.get(self.change_ID)),
+                    ("iteration"    , self.routine_iteraion),
+                    ("success"      , 1),
+                    ])
+
+                mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+
+                time.sleep(self.still_time)
                 
 
             dateTime          = datetime.now(timezone.utc)
@@ -714,7 +740,7 @@ class Chamber:
                 ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
                 ("changeID"     , self.change_ID),
                 ("changeLabel"  , self.routine_mapping.get(self.change_ID)),
-                ("newValue"     , -100),
+                ("iteration"    , self.routine_iteraion),
                 ("success"      , 1),
                 ])
 

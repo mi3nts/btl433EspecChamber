@@ -43,6 +43,7 @@ routine = Chamber.Routine(
     humidity_increment=-5,
     humidity_padding=1,
     is_forced=True,
+    still_time=60,
     wait_time=3
 )
 
