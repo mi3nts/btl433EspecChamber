@@ -14,7 +14,7 @@ credentials         = mD.credentials
 token               = credentials['chamber']['token']  
 
 # Example usage:
-url   = "http://192.168.20.113"
+url   = "http://192.168.20.121"
 
 # Check for available chamber index
 chamber_index = eC.get_available_chamber_index(url, token)
@@ -34,13 +34,13 @@ time.sleep(10)
 routine = Chamber.Routine(
     chamber = chamber,
     major_variable="humidity",
-    temperature_start=40,
-    temperature_end=60,
-    temperature_increment=10,
+    temperature_start=20,
+    temperature_end=40,
+    temperature_increment=4,
     temperature_padding=1,
     humidity_start=60,
     humidity_end=40,
-    humidity_increment=-10,
+    humidity_increment=-4,
     humidity_padding=1,
     is_forced=True,
     still_time=60,

@@ -126,6 +126,11 @@ if macAddress == "ae5abeda5763":
     baseFolder                = "/Users/lakitha/"
 
 
+
+if macAddress == "3a6ace4e0074":
+    baseFolder                = "/Users/lakitha/"
+
+
 if macAddress == "9a0ed1b5378d":
     baseFolder                = "/Users/lakitha/"
 
