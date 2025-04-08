@@ -33,6 +33,7 @@ time.sleep(10)
 
 routine = Chamber.Routine(
     chamber = chamber,
+    symmetrical_converging=True,
     major_variable="humidity",
     temperature_start=20,
     temperature_end=40,

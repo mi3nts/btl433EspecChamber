@@ -487,6 +487,7 @@ class Chamber:
 
         def __init__(self,*,
                     chamber, 
+                    symmetrical_converging: bool = False,
                     major_variable: str,
                     temperature_start: float,
                     temperature_end: float,
@@ -514,6 +515,7 @@ class Chamber:
             if major_variable.lower() not in ["temperature", "humidity"]:
                 raise ValueError("major_variable must be 'temperature' or 'humidity'.")
 
+            self.symmetrical_converging = symmetrical_converging
             self.major_variable = major_variable.lower()
             self.temperature_start = temperature_start
             self.temperature_end = temperature_end
@@ -579,13 +581,24 @@ class Chamber:
             """Generates the list of control waypoints."""
             routine_log = []
 
-            temp_range = self._generate_range(self.temperature_start,
-                                            self.temperature_end,
-                                            self.temperature_increment)
+            if self.symmetrical_converging:
+                print("Generating symmetrical converging waypoints.")
+                temp_range = self._symmetrical_converging_range(self.temperature_start,
+                                                                self.temperature_end,
+                                                                self.temperature_increment)
+                humid_range = self._symmetrical_converging_range(self.humidity_start,
+                                                                self.humidity_end,
+                                                                self.humidity_increment)
+            else:
+                print("Generating standard waypoints.")
+                temp_range = self._generate_range(self.temperature_start,
+                                                self.temperature_end,
+                                                self.temperature_increment)
 
-            humid_range = self._generate_range(self.humidity_start,
-                                            self.humidity_end,
-                                            self.humidity_increment)
+                humid_range = self._generate_range(self.humidity_start,
+                                                self.humidity_end,
+                                                self.humidity_increment)
+
 
             print(f"Generating control routine. Major variable: {self.major_variable}")
 
@@ -602,6 +615,21 @@ class Chamber:
 
             self.routine_log = routine_log
             print("Waypoints generated.\n")
+
+        def _symmetrical_converging_range(self, start: float, end: float, step: float) -> List[float]:
+                values = list(self._generate_range(start, end, step))
+                result = []
+
+                left = 0
+                right = len(values) - 1
+                while left <= right:
+                    if right != left:
+                        result.append(values[right])
+                    result.append(values[left])
+                    left += 1
+                    right -= 1
+                return result
+
 
         def _generate_range(self, start: float, end: float, step: float) -> List[float]:
             """Helper to generate inclusive ranges safely."""
