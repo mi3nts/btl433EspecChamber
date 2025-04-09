@@ -135,6 +135,10 @@ if macAddress == "9a0ed1b5378d":
     baseFolder                = "/Users/lakitha/"
 
 
+if macAddress == "3246b7575a79":
+    baseFolder                = "/Users/lakitha/"
+
+
 dataFolderReference       = baseFolder + "mintsData/reference"
 dataFolderMQTTReference   = baseFolder + "mintsData/referenceMQTT"
 dataFolder                = baseFolder + "mintsData/raw"

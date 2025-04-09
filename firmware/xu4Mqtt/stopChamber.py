@@ -14,7 +14,7 @@ credentials         = mD.credentials
 token               = credentials['chamber']['token']  
 
 # Example usage:
-url   = "http://192.168.20.113"
+url   = "http://192.168.20.121"
 
 # Check for available chamber index
 chamber_index = eC.get_available_chamber_index(url, token)
