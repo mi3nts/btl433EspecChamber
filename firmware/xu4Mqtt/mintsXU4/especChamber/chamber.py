@@ -574,11 +574,13 @@ class Chamber:
                 ("waitTime"            ,  wait_time),
             ])
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
-
+            time.sleep(1)
             self._generate_waypoints()
 
         def _generate_waypoints(self) -> None:
             """Generates the list of control waypoints."""
+
+            print("Generating control routine waypoints...")
             routine_log = []
 
             if self.symmetrical_converging:
@@ -605,13 +607,23 @@ class Chamber:
             if self.major_variable == "temperature":
                 for temp in temp_range:
                     for humid in humid_range:
-                        entry = self._create_log_entry(temp, humid)
-                        routine_log.append(entry)
+                      
+                        if self.check_entry_validity(temp,humid):
+                            entry = self._create_log_entry(temp, humid)
+                            print(f"Generating entry for Temp: {temp}, Humidity: {humid}")
+                            routine_log.append(entry)
+                        else: 
+                            print(f"Skipping entry for Temp: {temp}, Humidity: {humid} due to invalidity.")                           
+
             else:  # major_variable == "humidity"
                 for humid in humid_range:
                     for temp in temp_range:
-                        entry = self._create_log_entry(temp, humid)
-                        routine_log.append(entry)
+                        if self.check_entry_validity(temp,humid):
+                            entry = self._create_log_entry(temp, humid)
+                            print(f"Generating entry for Temp: {temp}, Humidity: {humid}")
+                            routine_log.append(entry)
+                        else:
+                            print(f"Skipping entry for Temp: {temp}, Humidity: {humid} due to invalidity.")
 
             self.routine_log = routine_log
             print("Waypoints generated.\n")
@@ -679,6 +691,54 @@ class Chamber:
                 print(entry)
 
 
+        def check_entry_validity(self,temp,hum) -> bool:
+            """Check if the entry is valid based on padding and forced conditions."""
+            # Major Square for viabile climate conditions 
+            if not self.is_inside_square((5,10), (45,95), (temp,hum)):
+                return False
+            
+            if self.is_inside_square((5,60), (15,95), (temp,hum)):
+                return False
+            if self.is_inside_triangle((5,40),(5,60),(15,60),(temp,hum)):
+                return False
+            if self.is_inside_triangle((5,10),(5,15),(40,10),(temp,hum)):
+                return False
+            return True                        
+
+
+
+
+        def is_inside_square(self, climateBL, climateTR, climateTest):
+            """
+            Parameters:
+            - climateBL: Bottom-left corner (minTemp, minHum)
+            - climateTR: Top-right corner (maxTemp, maxHum)
+            - climateTest: Point to check (temp, hum)
+            """
+            minTemp, minHum = climateBL
+            maxTemp, maxHum = climateTR
+            testTemp, testHum = climateTest
+
+            return (minTemp <= testTemp <= maxTemp) and (minHum <= testHum <= maxHum)
+
+        def area(self, temp1, hum1, temp2, hum2, temp3, hum3):
+            return abs((temp1 * (hum2 - hum3) +
+                        temp2 * (hum3 - hum1) +
+                        temp3 * (hum1 - hum2)) / 2.0)
+
+        def is_inside_triangle(self, climate01, climate02, climate03, climateTest):
+            temp01, hum01 = climate01
+            temp02, hum02 = climate02
+            temp03, hum03 = climate03
+            tempTest, humTest = climateTest
+
+            total_area = self.area(temp01, hum01, temp02, hum02, temp03, hum03)
+            area1 = self.area(tempTest, humTest, temp02, hum02, temp03, hum03)
+            area2 = self.area(temp01, hum01, tempTest, humTest, temp03, hum03)
+            area3 = self.area(temp01, hum01, temp02, hum02, tempTest, humTest)
+
+            return abs((area1 + area2 + area3) - total_area) < 0
+
         def run_routine(self,chamber) -> None:
             """Run the generated routine log."""
             print("Routine Waypoints:")
@@ -699,14 +759,10 @@ class Chamber:
                 ])
 
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
-            
-
             self.routine_length = len(self.routine_log)
 
-
-
-
             for entry in self.routine_log:
+
                 self.routine_iteraion = self.routine_iteraion +1
                 print("--------------------------------------------------------------------------")
                 print("Setting Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
