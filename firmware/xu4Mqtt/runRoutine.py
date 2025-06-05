@@ -31,20 +31,24 @@ time.sleep(10)
 
 # Running Routines 
 
+## Things to modify 
+#  Unreachable Areas 
+#  Dont change the mode if it is in the cerrent mode 
+
 routine = Chamber.Routine(
     chamber = chamber,
     symmetrical_converging=True,
     major_variable="temperature",
-    temperature_start=20,
-    temperature_end=30,
+    temperature_start=10,
+    temperature_end=40,
     temperature_increment=5,
-    temperature_padding=1,
-    humidity_start=60,
-    humidity_end=50,
+    temperature_padding=2,
+    humidity_start=90,
+    humidity_end=10,
     humidity_increment=-5,
-    humidity_padding=1,
+    humidity_padding=2,
     is_forced=True,
-    still_time=60,
+    still_time=120,
     wait_time=3
 )
 
