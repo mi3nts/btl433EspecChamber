@@ -52,8 +52,6 @@ routine = Chamber.Routine(
     wait_time=3
 )
 
-
 routine.print_routine()
 
-
-# routine.run_routine(chamber)
+routine.run_routine(chamber)
