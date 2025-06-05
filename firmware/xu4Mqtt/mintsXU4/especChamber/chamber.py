@@ -737,12 +737,9 @@ class Chamber:
                     time.sleep(10)
                     chamber.get_and_write_summary()
 
-
-
                 print("Way point achieved: ")
 
-            
-
+        
                 dateTime          = datetime.now(timezone.utc)
                 sensorIDPost      = "RTNCHG"
                 self.change_ID    = 10 
