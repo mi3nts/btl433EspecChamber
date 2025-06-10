@@ -39,7 +39,7 @@ routine = Chamber.Routine(
     chamber = chamber,
     symmetrical_converging=True,
     major_variable="temperature",
-    temperature_start=10,
+    temperature_start=-20,
     temperature_end=40,
     temperature_increment=5,
     temperature_padding=2,
@@ -54,4 +54,4 @@ routine = Chamber.Routine(
 
 routine.print_routine()
 
-routine.run_routine(chamber)
+# routine.run_routine(chamber)

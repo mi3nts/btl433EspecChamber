@@ -389,48 +389,6 @@ class Chamber:
         mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
 
         return success
-    
-    # def set_temperature_and_value(self, temp_value, humi_value):
-    #     """
-    #     Updates the temperature set value.
-
-    #     :param temp_value: The new temperature set value.
-    #     """
-    #     data = {
-    #         "temp": {
-    #             "group": "loop",
-    #             "set_value": temp_value,
-    #             "range": [-20, 180]
-    #         }
-    #         ,
-    #         "humi": {
-    #             "group": "loop",
-    #             "enable": True,
-    #             "set_value": humi_value,
-    #             "range": [10, 95]  # Assuming valid humidity range
-    #         }
-    #     }
-
-    #     success, response          = self.execute_command("constants/constant_1", data=data, method="POST")
-    #     pprint.pprint(response)
-    #     time.sleep(1)
-
-    #     dateTime          = datetime.now(timezone.utc)
-    #     sensorIDPost      = "CHNG"
-
-    #     self.change_ID    = 12  # Change ID for Temperature Set
-
-    #     # Log the change
-    #     sensorDictionary = OrderedDict([
-    #         ("dateTime"     , str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
-    #         ("changeID"     , self.change_ID),
-    #         ("changeLabel"  , self.change_mapping.get(self.change_ID)),
-    #         ("newValue"     , temp_value),
-    #         ("success"      , self.bool_to_int(success)),
-    #     ])
-    #     mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
-
-    #     return success
 
 
     def start_constant_mode(self):
@@ -498,8 +456,10 @@ class Chamber:
                     humidity_increment: float,
                     humidity_padding: float,
                     is_forced: bool,
-                    still_time: int = 10, 
+                    still_time: int = 10,
                     wait_time: int = 5):
+            
+
 
             if temperature_increment == 0 or humidity_increment == 0:
                 raise ValueError("Increment values cannot be zero.")
@@ -529,12 +489,12 @@ class Chamber:
             self.still_time = still_time
             self.wait_time  = wait_time
 
-
             self.routine_mapping = {
                 0: "Routine Initiated",
                 1: "Routine Started",
                 2: "Routine Ended",            
                 10: "Routine Holding",            
+                11: "Routine Holding – Waypoint Unreached",
             }
 
 
@@ -556,7 +516,7 @@ class Chamber:
             
    
             sensorIDPost     = "RTNDT"
-
+            
             # Log the change
             sensorDictionary = OrderedDict([
                 ("dateTime"            ,  str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
@@ -572,22 +532,48 @@ class Chamber:
                 ("isForced"            ,  chamber.bool_to_int(is_forced)),
                 ("stillTime"           ,  still_time),
                 ("waitTime"            ,  wait_time),
-            ])
+                ])
+            
+
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
             time.sleep(1)
             self._generate_waypoints()
+
+        def _create_log_entry(self, temperature: float, humidity: float, humidity_controlled: bool) -> Dict:
+            """Creates a log entry with padding and control parameters."""
+            return {
+                'temperature': temperature,
+                'humidity': humidity,
+                'humidity_controlled': humidity_controlled,                
+                'temperature_padding': self.temperature_padding,
+                'humidity_padding': self.humidity_padding,
+                'is_forced': self.is_forced,
+                'still_time': self.still_time,       
+                'wait_time': self.wait_time
+            }
+
+
+        def append_entry(self, temp: float, humid: float) -> None:
+            if self.check_entry_validity(temp,humid):
+                humidity_controlled = self.check_humidity_controlled(temp, humid)
+                entry = self._create_log_entry(temp, humid,humidity_controlled)
+                print(f"Generating entry for Temperature: {temp}, Humidity: {humid}, Humidity Controlled: {humidity_controlled}")
+                self.routine_log.append(entry)
+            else: 
+                print(f"Skipping entry for Temperature: {temp}, Humidity: {humid} due to invalidity.")            
 
         def _generate_waypoints(self) -> None:
             """Generates the list of control waypoints."""
 
             print("Generating control routine waypoints...")
-            routine_log = []
-
+            self.routine_log = []
+            
             if self.symmetrical_converging:
                 print("Generating symmetrical converging waypoints.")
                 temp_range = self._symmetrical_converging_range(self.temperature_start,
                                                                 self.temperature_end,
                                                                 self.temperature_increment)
+                
                 humid_range = self._symmetrical_converging_range(self.humidity_start,
                                                                 self.humidity_end,
                                                                 self.humidity_increment)
@@ -607,25 +593,13 @@ class Chamber:
             if self.major_variable == "temperature":
                 for temp in temp_range:
                     for humid in humid_range:
-                      
-                        if self.check_entry_validity(temp,humid):
-                            entry = self._create_log_entry(temp, humid)
-                            print(f"Generating entry for Temp: {temp}, Humidity: {humid}")
-                            routine_log.append(entry)
-                        else: 
-                            print(f"Skipping entry for Temp: {temp}, Humidity: {humid} due to invalidity.")                           
+                        self.append_entry(temp, humid)
 
             else:  # major_variable == "humidity"
                 for humid in humid_range:
                     for temp in temp_range:
-                        if self.check_entry_validity(temp,humid):
-                            entry = self._create_log_entry(temp, humid)
-                            print(f"Generating entry for Temp: {temp}, Humidity: {humid}")
-                            routine_log.append(entry)
-                        else:
-                            print(f"Skipping entry for Temp: {temp}, Humidity: {humid} due to invalidity.")
+                        self.append_entry(temp, humid)
 
-            self.routine_log = routine_log
             print("Waypoints generated.\n")
 
         def _symmetrical_converging_range(self, start: float, end: float, step: float) -> List[float]:
@@ -672,17 +646,6 @@ class Chamber:
 
             return range_list
 
-        def _create_log_entry(self, temperature: float, humidity: float) -> Dict:
-            """Creates a log entry with padding and control parameters."""
-            return {
-                'temperature': temperature,
-                'humidity': humidity,
-                'temperature_padding': self.temperature_padding,
-                'humidity_padding': self.humidity_padding,
-                'is_forced': self.is_forced,
-                'still_time': self.still_time,       
-                'wait_time': self.wait_time
-            }
 
         def print_routine(self) -> None:
             """Prints the generated routine log."""
@@ -694,19 +657,24 @@ class Chamber:
         def check_entry_validity(self,temp,hum) -> bool:
             """Check if the entry is valid based on padding and forced conditions."""
             # Major Square for viabile climate conditions 
-            if not self.is_inside_square((5,10), (45,95), (temp,hum)):
+            if not self.is_inside_square((-20,10), (45,95), (temp,hum)):
                 return False
-            
+           
+            return True                        
+
+
+
+        def check_humidity_controlled(self,temp,hum) -> bool:
+            if not self.is_inside_square((5,10), (45,95), (temp,hum)):
+                return False            
             if self.is_inside_square((5,60), (15,95), (temp,hum)):
                 return False
             if self.is_inside_triangle((5,40),(5,60),(15,60),(temp,hum)):
                 return False
             if self.is_inside_triangle((5,10),(5,15),(40,10),(temp,hum)):
                 return False
-            return True                        
-
-
-
+            
+            return True  
 
         def is_inside_square(self, climateBL, climateTR, climateTest):
             """
@@ -718,6 +686,15 @@ class Chamber:
             minTemp, minHum = climateBL
             maxTemp, maxHum = climateTR
             testTemp, testHum = climateTest
+                        
+            # tol = 1e-6
+            # inside = (minTemp - tol <= testTemp <= maxTemp + tol) and (minHum - tol <= testHum <= maxHum + tol)
+
+            # print("Bottom-left corner:", (minTemp, minHum))
+            # print("Top-right corner:  ", (maxTemp, maxHum))
+            # print("Test point:        ", (testTemp, testHum))
+            # print(f"Point is inside or on the border: {inside}")
+            # time.sleep(0.1)  # Simulate some processing delay
 
             return (minTemp <= testTemp <= maxTemp) and (minHum <= testHum <= maxHum)
 
@@ -769,7 +746,7 @@ class Chamber:
 
 
                 dateTime          = datetime.now(timezone.utc)
-                sensorIDPost      = "RTNPRG"
+                sensorIDPost      = "RTNPRGV2"
 
                 # Log the change
                 sensorDictionary = OrderedDict([
@@ -777,28 +754,55 @@ class Chamber:
                     ("rotuingPercentage" , 100*(self.routine_iteraion/self.routine_length)),
                     ("rotuingIteration"  , self.routine_iteraion),
                     ("rotuingLength"     , self.routine_length),
+                    ("entryTemperature"  , entry['temperature']),
+                    ("entryHumidity"     , entry['humidity']),       
+                    ("entryHC"           , chamber.bool_to_int(entry['humidityControlled'])),      # This is 1 or Zero but given in as True or False              
                     ("success"           , 1),
                     ])
 
                 mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+
+
+
+
+
                 chamber.change_temperature_and_humdity(entry['temperature'],entry['humidity'])
                 
-                
-                
-                # 
-                while (abs(entry['temperature'] - chamber.temperature_process_value) > entry['temperature_padding'] or \
-                       abs(entry['humidity'] - chamber.humidity_process_value) > entry['humidity_padding']):
-                    
-                    print("Still Seeking Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
-                    time.sleep(10)
-                    chamber.get_and_write_summary()
+                startTime = time.time()
+                wayPointAchieved = True
 
-                print("Way point achieved: ")
+                if entry['humidity_controlled']:
+                    while (abs(entry['temperature'] - chamber.temperature_process_value) > entry['temperature_padding'] or \
+                        abs(entry['humidity'] - chamber.humidity_process_value) > entry['humidity_padding']):
+                        print("Still Seeking Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
+                        time.sleep(10)
+                        chamber.get_and_write_summary()
+                        if time.time() - startTime > self.wait_time:
+                            print("Wait time exceeded, Way point not achieved: breaking out of loop.")
+                            wayPointAchieved = False
+                            break
 
-        
+                else:
+                    while (abs(entry['temperature'] - chamber.temperature_process_value) > entry['temperature_padding']) :
+                        print("Still Seeking Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
+                        time.sleep(10)
+                        chamber.get_and_write_summary()
+
+                        if time.time() - startTime > self.wait_time:
+                            print("Wait time exceeded, Way point not achieved: breaking out of loop.")
+                            wayPointAchieved = False
+                            break
+                
+                if wayPointAchieved:              
+                    print("Way point achieved: ")
+                    self.change_ID    = 10 
+                else:
+                    print("Way point not achieved: ")
+                    self.change_ID    = 11
+
+
                 dateTime          = datetime.now(timezone.utc)
                 sensorIDPost      = "RTNCHG"
-                self.change_ID    = 10 
 
                 # Log the change
                 sensorDictionary = OrderedDict([
@@ -810,7 +814,7 @@ class Chamber:
                     ])
 
                 mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
-
+                
                 time.sleep(entry['still_time'])
                 
 
@@ -829,6 +833,4 @@ class Chamber:
 
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
             
-
-
             print("Routine Ran")
