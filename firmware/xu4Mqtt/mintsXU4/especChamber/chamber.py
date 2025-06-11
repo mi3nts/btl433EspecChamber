@@ -657,53 +657,43 @@ class Chamber:
         def check_entry_validity(self,temp,hum) -> bool:
             """Check if the entry is valid based on padding and forced conditions."""
             # Major Square for viabile climate conditions 
-            if not self.is_inside_square((-20,10), (45,95), (temp,hum)):
-                return False
-           
-            return True                        
-
-
-
+            return self.is_inside_square((-20,10), (40,95), (temp,hum),include_border=True)
+                
         def check_humidity_controlled(self,temp,hum) -> bool:
-            if not self.is_inside_square((5,10), (45,95), (temp,hum)):
-                return False            
-            if self.is_inside_square((5,60), (15,95), (temp,hum)):
-                return False
-            if self.is_inside_triangle((5,40),(5,60),(15,60),(temp,hum)):
-                return False
-            if self.is_inside_triangle((5,10),(5,15),(40,10),(temp,hum)):
-                return False
-            
-            return True  
+            return any([\
+                        self.is_inside_square(          (15,15), (85,95), (temp,hum)), 
+                        self.is_inside_square(          (40,10), (85,15), (temp,hum)),
+                        self.is_inside_square(           (5,15), (15,40), (temp,hum)),
+                        self.is_inside_triangle((5,40), (15,40), (15,60), (temp,hum)),
+                        self.is_inside_triangle((5,15), (15,40), (40,10), (temp,hum)),
+                        ])
 
-        def is_inside_square(self, climateBL, climateTR, climateTest):
+        def is_inside_square(self, climateBL, climateTR, climateTest, include_border=True):
             """
             Parameters:
             - climateBL: Bottom-left corner (minTemp, minHum)
             - climateTR: Top-right corner (maxTemp, maxHum)
             - climateTest: Point to check (temp, hum)
+            - include_border: If True, borders are considered inside
             """
-            minTemp, minHum = climateBL
-            maxTemp, maxHum = climateTR
+            # Normalize coordinates in case corners are swapped
+            minTemp = min(climateBL[0], climateTR[0])
+            maxTemp = max(climateBL[0], climateTR[0])
+            minHum  = min(climateBL[1], climateTR[1])
+            maxHum  = max(climateBL[1], climateTR[1])
             testTemp, testHum = climateTest
-                        
-            # tol = 1e-6
-            # inside = (minTemp - tol <= testTemp <= maxTemp + tol) and (minHum - tol <= testHum <= maxHum + tol)
 
-            # print("Bottom-left corner:", (minTemp, minHum))
-            # print("Top-right corner:  ", (maxTemp, maxHum))
-            # print("Test point:        ", (testTemp, testHum))
-            # print(f"Point is inside or on the border: {inside}")
-            # time.sleep(0.1)  # Simulate some processing delay
-
-            return (minTemp <= testTemp <= maxTemp) and (minHum <= testHum <= maxHum)
+            if include_border:
+                return (minTemp <= testTemp <= maxTemp) and (minHum <= testHum <= maxHum)
+            else:
+                return (minTemp < testTemp < maxTemp) and (minHum < testHum < maxHum)
 
         def area(self, temp1, hum1, temp2, hum2, temp3, hum3):
             return abs((temp1 * (hum2 - hum3) +
                         temp2 * (hum3 - hum1) +
                         temp3 * (hum1 - hum2)) / 2.0)
 
-        def is_inside_triangle(self, climate01, climate02, climate03, climateTest):
+        def is_inside_triangle(self, climate01, climate02, climate03, climateTest,include_border=True):
             temp01, hum01 = climate01
             temp02, hum02 = climate02
             temp03, hum03 = climate03
@@ -714,7 +704,19 @@ class Chamber:
             area2 = self.area(temp01, hum01, tempTest, humTest, temp03, hum03)
             area3 = self.area(temp01, hum01, temp02, hum02, tempTest, humTest)
 
-            return abs((area1 + area2 + area3) - total_area) < 0
+            if include_border:
+                return abs((area1 + area2 + area3) - total_area) <= 0
+            else:
+                return abs((area1 + area2 + area3) - total_area) < 0
+
+        def run_summary_during_sleep(self, chamber, sleepTime):
+            start_time = time.time()
+            time.sleep(10)
+            while (time.time() - start_time) < sleepTime:
+                chamber.get_and_write_summary()
+                print(f"Sleeping for {sleepTime} seconds, elapsed: {time.time() - start_time:.2f} seconds")
+                time.sleep(10)
+      
 
         def run_routine(self,chamber) -> None:
             """Run the generated routine log."""
@@ -739,7 +741,7 @@ class Chamber:
             self.routine_length = len(self.routine_log)
 
             for entry in self.routine_log:
-
+                
                 self.routine_iteraion = self.routine_iteraion +1
                 print("--------------------------------------------------------------------------")
                 print("Setting Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
@@ -756,15 +758,11 @@ class Chamber:
                     ("rotuingLength"     , self.routine_length),
                     ("entryTemperature"  , entry['temperature']),
                     ("entryHumidity"     , entry['humidity']),       
-                    ("entryHC"           , chamber.bool_to_int(entry['humidityControlled'])),      # This is 1 or Zero but given in as True or False              
+                    ("entryHC"           , chamber.bool_to_int(entry['humidity_controlled'])),      # This is 1 or Zero but given in as True or False              
                     ("success"           , 1),
                     ])
 
                 mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
-
-
-
-
 
                 chamber.change_temperature_and_humdity(entry['temperature'],entry['humidity'])
                 
@@ -774,7 +772,10 @@ class Chamber:
                 if entry['humidity_controlled']:
                     while (abs(entry['temperature'] - chamber.temperature_process_value) > entry['temperature_padding'] or \
                         abs(entry['humidity'] - chamber.humidity_process_value) > entry['humidity_padding']):
-                        print("Still Seeking Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
+                        print(
+                            f"Still Seeking Waypoint #{self.routine_iteraion}/{self.routine_length} "
+                            f"@ elapsed Time: {time.time() - startTime:.2f}/{self.wait_time} secs - Entry: {entry}"
+                        )
                         time.sleep(10)
                         chamber.get_and_write_summary()
                         if time.time() - startTime > self.wait_time:
@@ -784,7 +785,10 @@ class Chamber:
 
                 else:
                     while (abs(entry['temperature'] - chamber.temperature_process_value) > entry['temperature_padding']) :
-                        print("Still Seeking Way Point #: " + str(self.routine_iteraion) + "/" + str(self.routine_length) + " " +  str(entry))
+                        print(
+                            f"Still Seeking Waypoint #{self.routine_iteraion}/{self.routine_length} "
+                            f"@ elapsed Time: {time.time() - startTime:.2f}/{self.wait_time} secs - Entry: {entry}"
+                        )
                         time.sleep(10)
                         chamber.get_and_write_summary()
 
@@ -815,7 +819,8 @@ class Chamber:
 
                 mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
                 
-                time.sleep(entry['still_time'])
+                self.run_summary_during_sleep(chamber, entry['still_time'])
+
                 
 
             dateTime          = datetime.now(timezone.utc)

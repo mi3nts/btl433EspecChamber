@@ -43,15 +43,15 @@ routine = Chamber.Routine(
     temperature_end=40,
     temperature_increment=5,
     temperature_padding=2,
-    humidity_start=90,
-    humidity_end=10,
+    humidity_start=100,
+    humidity_end=0,
     humidity_increment=-5,
     humidity_padding=2,
     is_forced=True,
-    still_time=120,
-    wait_time=3
+    still_time=120, # Keep the chamber in the current state for this time
+    wait_time =1200 # if the chamber is not in the desired state, wait for this time before moving on   
 )
 
 routine.print_routine()
 
-# routine.run_routine(chamber)
+routine.run_routine(chamber)
