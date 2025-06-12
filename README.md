@@ -23,3 +23,33 @@ The chamber can handle 2 different modes. Firstly the static mode where you can 
 Check logs to examine what needs to be put on influx - 
 How can I carefully control the chamber to achive the walk in Temperature and Humidity space 
 
+# BTL433 ESPEC Chamber Operating Instructions
+
+## Startup Procedure
+
+1. **Enable Dry Air Purge:**
+   - Turn on the air supply to the dry air purge system.
+   - Plug in the dry air purge unit.
+
+2. **Prepare Pressurized Water Tank:**
+   - Check the water level in the pressurized water tank.
+   - Plug in the pressurized water tank.
+   - Turn on the pressurized water tank.
+
+3. **Power the Chamber:**
+   - Plug in the ESPEC chamber.
+   - Log in to the chamber interface via the SBC (Single Board Computer).
+   - Upload and start the desired recipe.
+
+---
+
+## Shutdown Procedure
+
+1. **Stop Chamber Operation:**
+   - Log in to the chamber interface and stop any running recipe.
+
+2. **Power Down and Disconnect:**
+   - Turn off the pressurized water tank.
+   - Unplug the pressurized water tank.
+   - Unplug the dry air purge unit.
+   - Unplug the chamber.
