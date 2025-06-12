@@ -67,12 +67,3 @@ The dry air purge system ensures stable operation under low humidity or dehumidi
 
 ---
 
-## 🖥️ Firmware and Logging
-
-- Firmware logs are essential for tracking chamber behavior and identifying data points for InfluxDB integration.
-- Use logs to understand how the chamber transitions between target climate zones.
-- Implement controlled recipes to simulate **walk-in temperature-humidity profiles**.
-
----
-
-Let me know if you'd like a downloadable `.md` version or GitHub-ready `README.md` style layout.
