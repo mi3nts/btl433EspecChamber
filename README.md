@@ -1,55 +1,78 @@
-# btl433EspecChamber
-Contains firmware to run the ESPEC BTL433 Chmaber 
+# BTL433 ESPEC Chamber
 
-## Operation
-
-
-### The water supply 
-* Pressurize the tank to 18 psi using an air pump
-* Fill in the tank (5% Distilled water)
-* Connect the appropriate tubing
-* Turn the pump on using the toggle switch on top
-
-### Dry Air Purge 
-
-
-
-
-The chamber can handle 2 different modes. Firstly the static mode where you can just assign specific temperature and humidities for it to aim for. Secondly a programmable mode where we can program it to got to different climatic conditions at given time stamps dynamicallly. 
-
-**FYI: Make sure humidity mode is enabled if planning on working with assigned humidities.** 
-
-## Firmware 
-Check logs to examine what needs to be put on influx - 
-How can I carefully control the chamber to achive the walk in Temperature and Humidity space 
-
-# BTL433 ESPEC Chamber Operating Instructions
-
-## Startup Procedure
-
-1. **Enable Dry Air Purge:**
-   - Turn on the air supply to the dry air purge system.
-   - Plug in the dry air purge unit.
-
-2. **Prepare Pressurized Water Tank:**
-   - Check the water level in the pressurized water tank.
-   - Plug in the pressurized water tank.
-   - Turn on the pressurized water tank.
-
-3. **Power the Chamber:**
-   - Plug in the ESPEC chamber.
-   - Log in to the chamber interface via the SBC (Single Board Computer).
-   - Upload and start the desired recipe.
+This repository contains the firmware and operational guidelines for managing the **ESPEC BTL433 environmental chamber**.
 
 ---
 
-## Shutdown Procedure
+## 🔧 Operation Overview
 
-1. **Stop Chamber Operation:**
-   - Log in to the chamber interface and stop any running recipe.
+The BTL433 chamber supports two primary modes:
 
-2. **Power Down and Disconnect:**
+1. **Static Mode** – Set a fixed temperature and humidity target.
+2. **Programmable Mode** – Define a time-based recipe to transition through multiple climate conditions dynamically.
+
+> ⚠️ **Important:** Ensure that *humidity control mode* is enabled if the recipe or static setting involves humidity control.
+
+---
+
+## 💧 Water Supply Setup
+
+To prepare the water system for humidity control:
+
+- Pressurize the water tank to **18 psi** using an air pump.
+- Fill the tank with **5% distilled water**.
+- Connect the tubing to the chamber's humidifier input.
+- Use the **toggle switch** on top of the tank to power on the internal pump.
+
+---
+
+## 🌬️ Dry Air Purge Setup
+
+The dry air purge system ensures stable operation under low humidity or dehumidification conditions:
+
+- Turn on the **air supply** feeding the dry air purge system.
+- Plug in the **dry air purge unit** for active operation.
+
+---
+
+## 🔌 Chamber Operation Procedures
+
+### ✅ Startup Procedure
+
+1. **Dry Air Purge**
+   - Activate the air supply line.
+   - Plug in the purge unit.
+
+2. **Water Tank**
+   - Verify the water level.
+   - Plug in and power on the pressurized tank.
+
+3. **Chamber Power**
+   - Plug in the chamber.
+   - Log into the interface via the **Single Board Computer (SBC)**.
+   - Upload and execute the desired temperature/humidity **recipe**.
+
+---
+
+### ⛔ Shutdown Procedure
+
+1. **Stop Recipe**
+   - Log in via SBC and stop any running recipe.
+
+2. **Power Down**
    - Turn off the pressurized water tank.
-   - Unplug the pressurized water tank.
+   - Unplug the water tank.
    - Unplug the dry air purge unit.
    - Unplug the chamber.
+
+---
+
+## 🖥️ Firmware and Logging
+
+- Firmware logs are essential for tracking chamber behavior and identifying data points for InfluxDB integration.
+- Use logs to understand how the chamber transitions between target climate zones.
+- Implement controlled recipes to simulate **walk-in temperature-humidity profiles**.
+
+---
+
+Let me know if you'd like a downloadable `.md` version or GitHub-ready `README.md` style layout.
