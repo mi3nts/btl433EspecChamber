@@ -1,25 +1,69 @@
-# btl433EspecChamber
-Contains firmware to run the ESPEC BTL433 Chmaber 
+# BTL433 ESPEC Chamber
 
-## Operation
+This repository contains the firmware and operational guidelines for managing the **ESPEC BTL433 environmental chamber**.
 
+---
 
-### The water supply 
-* Pressurize the tank to 18 psi using an air pump
-* Fill in the tank (5% Distilled water)
-* Connect the appropriate tubing
-* Turn the pump on using the toggle switch on top
+## 🔧 Operation Overview
 
-### Dry Air Purge 
+The BTL433 chamber supports two primary modes:
 
+1. **Static Mode** – Set a fixed temperature and humidity target.
+2. **Programmable Mode** – Define a time-based recipe to transition through multiple climate conditions dynamically.
 
+> ⚠️ **Important:** Ensure that *humidity control mode* is enabled if the recipe or static setting involves humidity control.
 
+---
 
-The chamber can handle 2 different modes. Firstly the static mode where you can just assign specific temperature and humidities for it to aim for. Secondly a programmable mode where we can program it to got to different climatic conditions at given time stamps dynamicallly. 
+## 💧 Water Supply Setup
 
-**FYI: Make sure humidity mode is enabled if planning on working with assigned humidities.** 
+To prepare the water system for humidity control:
 
-## Firmware 
-Check logs to examine what needs to be put on influx - 
-How can I carefully control the chamber to achive the walk in Temperature and Humidity space 
+- Pressurize the water tank to **18 psi** using an air pump.
+- Fill the tank with **5% distilled water**.
+- Connect the tubing to the chamber's humidifier input.
+- Use the **toggle switch** on top of the tank to power on the internal pump.
+
+---
+
+## 🌬️ Dry Air Purge Setup
+
+The dry air purge system ensures stable operation under low humidity or dehumidification conditions:
+
+- Turn on the **air supply** feeding the dry air purge system.
+- Plug in the **dry air purge unit** for active operation.
+
+---
+
+## 🔌 Chamber Operation Procedures
+
+### ✅ Startup Procedure
+
+1. **Dry Air Purge**
+   - Activate the air supply line.
+   - Plug in the purge unit.
+
+2. **Water Tank**
+   - Verify the water level.
+   - Plug in and power on the pressurized tank.
+
+3. **Chamber Power**
+   - Plug in the chamber.
+   - Log into the interface via the **Single Board Computer (SBC)**.
+   - Upload and execute the desired temperature/humidity **recipe**.
+
+---
+
+### ⛔ Shutdown Procedure
+
+1. **Stop Recipe**
+   - Log in via SBC and stop any running recipe.
+
+2. **Power Down**
+   - Turn off the pressurized water tank.
+   - Unplug the water tank.
+   - Unplug the dry air purge unit.
+   - Unplug the chamber.
+
+---
 
