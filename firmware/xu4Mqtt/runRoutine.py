@@ -38,18 +38,18 @@ time.sleep(10)
 routine = Chamber.Routine(
     chamber = chamber,
     symmetrical_converging=True,
-    major_variable="temperature",
+    major_variable="humidity",
     temperature_start=-20,
     temperature_end=40,
-    temperature_increment=10,
+    temperature_increment=5,
     temperature_padding=2,
     humidity_start=100,
     humidity_end=0,
-    humidity_increment=-10,
+    humidity_increment=-5,
     humidity_padding=2,
     is_forced=True,
     still_time=120, # Keep the chamber in the current state for this time
-    wait_time =1200 # if the chamber is not in the desired state, wait for this time before moving on   
+    wait_time =2400 # if the chamber is not in the desired state, wait for this time before moving on   
 )
 
 routine.print_routine()
