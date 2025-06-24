@@ -821,7 +821,6 @@ class Chamber:
                 
                 self.run_summary_during_sleep(chamber, entry['still_time'])
 
-                
 
             dateTime          = datetime.now(timezone.utc)
             sensorIDPost      = "RTNCHG"
@@ -839,3 +838,8 @@ class Chamber:
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
             
             print("Routine Ran")
+
+            time.sleep(30)
+            
+            chamber.stop_chamber()
+            print("Chamber Stopped")
