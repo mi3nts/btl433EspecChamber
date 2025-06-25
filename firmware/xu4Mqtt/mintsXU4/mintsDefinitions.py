@@ -138,7 +138,7 @@ if macAddress == "9a0ed1b5378d":
 if macAddress == "3246b7575a79":
     baseFolder                = "/Users/lakitha/"
 
-if macAddress == "96a2899f0b39":
+if macAddress == "426b114b2c3d":
     baseFolder                = "/Users/lakitha/"
 
 
@@ -166,7 +166,6 @@ latestOn              = True
 mqttOn                = True
 
 credentialsFile       = 'mintsXU4/credentials.yml'
-
 
 hostsFile             = 'mintsXU4/hosts.yml'
 locationsFile         = 'mintsXU4/locations.yml'

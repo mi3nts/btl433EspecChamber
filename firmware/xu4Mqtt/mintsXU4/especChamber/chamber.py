@@ -6,11 +6,14 @@ from collections import OrderedDict
 from mintsXU4 import mintsSensorReader as mSR
 import requests
 import pprint
-
+import os
 import logging
 from typing import List, Dict  # For Python 3.8 compatibility
 
+from mintsXU4 import mintsDefinitions as mD
 
+dataFolder          = mD.dataFolder 
+nodeID              = mD.macAddress
 
 # Create a class named chamber where it initially checks 
 # the availabiltu of the chamber and then creates an object 
@@ -445,64 +448,50 @@ class Chamber:
 
         def __init__(self,*,
                     chamber, 
+                    mode: str,  # "uniform" or "custom"
                     symmetrical_converging: bool = False,
                     major_variable: str,
-                    temperature_start: float,
-                    temperature_end: float,
-                    temperature_increment: float,
                     temperature_padding: float,
-                    humidity_start: float,
-                    humidity_end: float,
-                    humidity_increment: float,
                     humidity_padding: float,
-                    is_forced: bool,
                     still_time: int = 10,
-                    wait_time: int = 5):
+                    wait_time: int = 5,
+                    is_forced: bool,
+                    **kwargs
+                    ):
+    
+
             
-
-
-            if temperature_increment == 0 or humidity_increment == 0:
-                raise ValueError("Increment values cannot be zero.")
-            
-            # Check temperature increment direction
-            if (temperature_end - temperature_start) * temperature_increment < 0:
-                raise ValueError("Temperature increment direction does not match start and end values.")
-
-            # Check humidity increment direction
-            if (humidity_end - humidity_start) * humidity_increment < 0:
-                raise ValueError("Humidity increment direction does not match start and end values.")
-
             if major_variable.lower() not in ["temperature", "humidity"]:
-                raise ValueError("major_variable must be 'temperature' or 'humidity'.")
+                raise ValueError("major_variable must be 'temperature' or 'humidity'.")       
+            
+            if mode.lower() not in ["uniform", "custom"]:
+                raise ValueError("mode must be 'uniform' or 'custom'.") 
 
+
+            self.mode                   = mode
             self.symmetrical_converging = symmetrical_converging
-            self.major_variable = major_variable.lower()
-            self.temperature_start = temperature_start
-            self.temperature_end = temperature_end
-            self.temperature_increment = temperature_increment
-            self.temperature_padding = temperature_padding
-            self.humidity_start = humidity_start
-            self.humidity_end = humidity_end
-            self.humidity_increment = humidity_increment
-            self.humidity_padding = humidity_padding
-            self.is_forced = is_forced
-            self.still_time = still_time
-            self.wait_time  = wait_time
+            self.major_variable         = major_variable.lower()
+            self.temperature_padding    = temperature_padding
+            self.humidity_padding       = humidity_padding
+            self.is_forced              = is_forced
+            self.still_time             = still_time
+            self.wait_time              = wait_time
+
+
 
             self.routine_mapping = {
-                0: "Routine Initiated",
-                1: "Routine Started",
-                2: "Routine Ended",            
-                10: "Routine Holding",            
-                11: "Routine Holding – Waypoint Unreached",
-            }
-
-
-      
+                    0: "Routine Initiated",
+                    1: "Routine Started",
+                    2: "Routine Ended",            
+                    10: "Routine Holding",            
+                    11: "Routine Holding – Waypoint Unreached",
+                }
+            
             dateTime              = datetime.now(timezone.utc)
             sensorIDPost          = "RTNCHG"
             self.change_ID        = 0  
             self.routine_iteraion = 0
+
             # Log the change
             sensorDictionary = OrderedDict([
                 ("dateTime", str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
@@ -511,13 +500,74 @@ class Chamber:
                 ("iteration"    , self.routine_iteraion),
                 ("success"      , 1),
                 ])
-
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
-            
-   
+
+            if mode.lower() == "uniform":
+                print()
+                print("Chamber in Uniform Mode")
+                print()
+                
+                
+                self.uniform_mode = True
+                print("Generating uniform waypoints...")
+
+                temperature_start      = kwargs.get("temperature_start")
+                temperature_end        = kwargs.get("temperature_end")
+                temperature_increment  = kwargs.get("temperature_increment")
+
+                humidity_start         = kwargs.get("humidity_start")
+                humidity_end           = kwargs.get("humidity_end")
+                humidity_increment     = kwargs.get("humidity_increment")
+
+
+            if mode.lower() == "custom":
+                print()
+                print("Chamber in Custom Mode")
+                print()
+
+                self.uniform_mode = False
+                print("Generating custom waypoints...")
+
+                temperature_list    = kwargs.get("temperature_list")
+                humidity_list       = kwargs.get("humidity_list")
+                
+                print(f"Temperature List: {temperature_list}")
+                print(f"Humidity List: {humidity_list}")
+
+                temperature_start     = temperature_list[0]
+                temperature_end       = temperature_list[-1]
+                temperature_increment = round((temperature_end - temperature_start) / (len(temperature_list) - 1), 2)
+
+                humidity_start      = humidity_list[0]
+                humidity_end        = humidity_list[-1]
+                humidity_increment  = round((humidity_end - humidity_start) / (len(humidity_list) - 1), 2)
+
+                self.temperature_list = temperature_list
+                self.humidity_list    = humidity_list
+
+
+
+            # Validate temperature and humidity ranges  
+            if temperature_increment == 0 or humidity_increment == 0:
+                raise ValueError("Increment values cannot be zero.")
+
+            # Check temperature increment direction
+            if (temperature_end - temperature_start) * temperature_increment < 0:
+                raise ValueError("Temperature increment direction does not match start and end values.")
+
+            # Check humidity increment direction
+            if (humidity_end - humidity_start) * humidity_increment < 0:
+                raise ValueError("Humidity increment direction does not match start and end values.")
+
+            self.temperature_start      = temperature_start
+            self.temperature_end        = temperature_end
+            self.temperature_increment  = temperature_increment
+
+            self.humidity_start         = humidity_start
+            self.humidity_end           = humidity_end
+            self.humidity_increment     = humidity_increment
+
             sensorIDPost     = "RTNDT"
-            
-            # Log the change
             sensorDictionary = OrderedDict([
                 ("dateTime"            ,  str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
                 ("majorVariable"       ,  major_variable.lower()),
@@ -534,10 +584,10 @@ class Chamber:
                 ("waitTime"            ,  wait_time),
                 ])
             
-
             mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
             time.sleep(1)
             self._generate_waypoints()
+
 
         def _create_log_entry(self, temperature: float, humidity: float, humidity_controlled: bool) -> Dict:
             """Creates a log entry with padding and control parameters."""
@@ -567,26 +617,13 @@ class Chamber:
 
             print("Generating control routine waypoints...")
             self.routine_log = []
-            
-            if self.symmetrical_converging:
-                print("Generating symmetrical converging waypoints.")
-                temp_range = self._symmetrical_converging_range(self.temperature_start,
-                                                                self.temperature_end,
-                                                                self.temperature_increment)
-                
-                humid_range = self._symmetrical_converging_range(self.humidity_start,
-                                                                self.humidity_end,
-                                                                self.humidity_increment)
-            else:
-                print("Generating standard waypoints.")
-                temp_range = self._generate_range(self.temperature_start,
-                                                self.temperature_end,
-                                                self.temperature_increment)
+         
 
-                humid_range = self._generate_range(self.humidity_start,
-                                                self.humidity_end,
-                                                self.humidity_increment)
-
+            # THIS IS ALL YOU NEED
+            temp_range  = self._generate_range(variable="temperature")
+            humid_range = self._generate_range(variable="humidity")
+            print(temp_range)
+            print(humid_range)
 
             print(f"Generating control routine. Major variable: {self.major_variable}")
 
@@ -595,15 +632,67 @@ class Chamber:
                     for humid in humid_range:
                         self.append_entry(temp, humid)
 
-            else:  # major_variable == "humidity"
+            if self.major_variable == "humidity":
                 for humid in humid_range:
                     for temp in temp_range:
                         self.append_entry(temp, humid)
 
             print("Waypoints generated.\n")
 
-        def _symmetrical_converging_range(self, start: float, end: float, step: float) -> List[float]:
-                values = list(self._generate_range(start, end, step))
+
+        def _generate_range(self, variable: str) -> List[float]:
+
+            if variable == "temperature":
+                start = self.temperature_start
+                end   = self.temperature_end
+                step  = self.temperature_increment
+            
+            if variable == "humidity":
+                start = self.humidity_start
+                end   = self.humidity_end
+                step  = self.humidity_increment
+
+
+            """Helper to generate inclusive ranges safely."""
+            if step == 0:
+                raise ValueError("Step size cannot be zero.")
+            if (start < end and step < 0) or (start > end and step > 0):
+                raise ValueError("Step size sign does not move towards end value.")
+
+      
+            if self.mode== "uniform":
+                current = start
+                max_iterations = 10000
+                iterations = 0
+                range_list = []
+
+                if step > 0:    
+                    while current <= end:
+                        range_list.append(round(current, 2))
+                        current += step
+                        iterations += 1
+                        if iterations > max_iterations:
+                            raise RuntimeError("Exceeded maximum iterations (possible infinite loop).")
+                else:
+                    while current >= end:
+                        range_list.append(round(current, 2))
+                        current += step
+                        iterations += 1
+                        if iterations > max_iterations:
+                            raise RuntimeError("Exceeded maximum iterations (possible infinite loop).")
+
+            if self.mode == "custom":
+                if variable == "temperature":
+                    range_list =   self.temperature_list
+                if variable == "humidity":
+                    range_list =   self.humidity_list
+
+            if len(range_list) == 1:
+                return range_list  # Return single value as a list
+            
+            if self.symmetrical_converging:
+                # Ensure the last value is included if it matches the end
+                values = list(range_list)
                 result = []
 
                 left = 0
@@ -615,44 +704,37 @@ class Chamber:
                     left += 1
                     right -= 1
                 return result
-
-
-        def _generate_range(self, start: float, end: float, step: float) -> List[float]:
-            """Helper to generate inclusive ranges safely."""
-            if step == 0:
-                raise ValueError("Step size cannot be zero.")
-            if (start < end and step < 0) or (start > end and step > 0):
-                raise ValueError("Step size sign does not move towards end value.")
-
-            range_list = []
-            current = start
-            max_iterations = 10000
-            iterations = 0
-
-            if step > 0:
-                while current <= end:
-                    range_list.append(round(current, 2))
-                    current += step
-                    iterations += 1
-                    if iterations > max_iterations:
-                        raise RuntimeError("Exceeded maximum iterations (possible infinite loop).")
+            
             else:
-                while current >= end:
-                    range_list.append(round(current, 2))
-                    current += step
-                    iterations += 1
-                    if iterations > max_iterations:
-                        raise RuntimeError("Exceeded maximum iterations (possible infinite loop).")
-
-            return range_list
+                return range_list
 
 
         def print_routine(self) -> None:
-            """Prints the generated routine log."""
+            dateTime          = datetime.now(timezone.utc)
+            # Format the timestamp for filename use
+            timestamp = dateTime.strftime('%Y%m%d%H%M%S%f')  # safer filename format
+            filename = f"routine{timestamp}.json"
+
             print("Routine Waypoints:")
+            print(f"Routine Log Filename: {filename}")
+
+            # Ensure the output directory exists
+            output_dir = os.path.join(dataFolder, nodeID, "routines")
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Construct the full output path
+            output_path_timestamped = os.path.join(output_dir, filename)
+
+            try:
+                with open(output_path_timestamped, 'w') as f:
+                    json.dump(self.routine_log, f, indent=2)
+                print(f"Routine log saved to {output_path_timestamped}")
+            except Exception as e:
+                print(f"❌ Failed to save file: {e}")
+            
             for entry in self.routine_log:
                 print(entry)
-
+            
 
         def check_entry_validity(self,temp,hum) -> bool:
             """Check if the entry is valid based on padding and forced conditions."""
