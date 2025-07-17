@@ -100,6 +100,7 @@ class Chamber:
             52: "Routine Incrimented",            
         }
 
+        time.sleep(5)
 
         self.get_and_write_summary(expanded=True)
 

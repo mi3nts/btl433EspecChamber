@@ -40,19 +40,19 @@ routine = Chamber.Routine(
     mode="uniform",
     symmetrical_converging=True,
     major_variable="temperature",
-    temperature_start=-20,
-    temperature_end=40,
+    temperature_start=25,
+    temperature_end=25,
     temperature_increment=10,
-    temperature_padding=2,
-    humidity_start=100,
-    humidity_end=0,
-    humidity_increment=-10,
-    humidity_padding=2,
+    temperature_padding=1,
+    humidity_start=50,
+    humidity_end=50,
+    humidity_increment=10,
+    humidity_padding=1,
     is_forced=True,
-    still_time=120, # Keep the chamber in the current state for this time
+    still_time=28800, # Keep the chamber in the current state for this time - Keep it for 8 hours
     wait_time =3600 # if the chamber is not in the desired state, wait for this time before moving on   
 )
 
 routine.print_routine()
 
-# routine.run_routine(chamber)
+routine.run_routine(chamber)
