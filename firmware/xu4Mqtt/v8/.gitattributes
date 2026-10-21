@@ -1,0 +1,4 @@
+# ADDED BY CLAUDE (v8 routine update, 2026-10-20) - keep schedule.tsv byte for byte - the Calibration copy is
+# committed with CRLF line ends; without -text, core.autocrlf would rewrite them and change its sha256.
+schedule.tsv -text
+# END ADDED BY CLAUDE
