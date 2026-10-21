@@ -1,3 +1,4 @@
+# v8 routine update: this file is ORIGINAL (Lakitha) code except the blocks marked ADDED BY CLAUDE.
 import json, requests
 import time
 import sys
@@ -66,7 +67,10 @@ def get_available_chamber_index(url, token, chamberWanted=0, timeout=5):
 
 class Chamber:
 
-    def __init__(self, url, chamber_index, token):
+    # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - optional request_timeout argument - a hung request must not freeze runRoutineV8.py
+    # v8 routine update (2026-10-20): CHANGED - __init__ takes an optional request_timeout (default None) - None is requests' own "no timeout", so every old caller behaves as before
+    def __init__(self, url, chamber_index, token, request_timeout=None):
+    # END ADDED BY CLAUDE
         """
         Initializes a Chamber instance.
         :param url: Base URL of the API.
@@ -76,6 +80,10 @@ class Chamber:
         self.url = url
         self.chamber_index = chamber_index
         self.token = token
+        # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - store request_timeout - read by execute_command
+        # v8 routine update (2026-10-20): CHANGED - keep the timeout for the two requests calls - see __init__
+        self.request_timeout = request_timeout
+        # END ADDED BY CLAUDE
         self.headers = {
             "Authorization": f"Bearer {self.token}"
         }
@@ -99,6 +107,11 @@ class Chamber:
             51: "Routine Started",
             52: "Routine Incrimented",            
         }
+        # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - CHNG labels 13 and 14 - logged by set_humidity_enabled / set_dry_air_purge
+        # v8 routine update (2026-10-20): CHANGED - two labels added to change_mapping - the old IDs and labels are untouched
+        self.change_mapping[13] = "Humidity System Set"
+        self.change_mapping[14] = "Dry Air Purge Set"
+        # END ADDED BY CLAUDE
 
         time.sleep(5)
 
@@ -137,6 +150,7 @@ class Chamber:
             print("Chamber data invalid")
 
 
+    # v8 routine update: LEFT ALONE - every write_* method (stream suffixes STATUS/TMPRT/HMDTY/PRGRM/DAP, field names, order and types) - Calibration's build_dataset.py reads them as they are
     def  write_status(self,dateTime,status):
             sensorIDPost            = "STATUS"
             self.chamber_time       = status["datetime"]
@@ -241,6 +255,7 @@ class Chamber:
                 ])
             mSR.sensorFinisher(dateTime,"BTL433ESC001" + sensorIDPost ,sensorDictionary)
 
+    # v8 routine update: LEFT ALONE - write_time_signal_set writes to "DAP", the purge stream, so each expanded summary writes two BTL433ESC001DAP records with field "enabled" of different meaning - reported in V8_ROUTINE_UPDATE.md (DAP issue), not fixed, because it changes a stream the pipeline reads
     def  write_time_signal_set(self,dateTime,status):
             sensorIDPost                        = "DAP"
             self.time_signal_group              = status["group"]
@@ -280,10 +295,14 @@ class Chamber:
             headers["Content-Type"] = "application/json"
 
         try:
+            # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - pass request_timeout to both requests calls - see __init__
+            # v8 routine update (2026-10-20): CHANGED - timeout=self.request_timeout on the POST and the GET - None (the default) keeps the old no-timeout behaviour
             if method.upper() == "POST":
-                rsp = requests.post(full_url, headers=headers, json=data)
+                rsp = requests.post(full_url, headers=headers, json=data, timeout=self.request_timeout)
             else:  # Default to GET
-                rsp = requests.get(full_url, headers=headers)
+                rsp = requests.get(full_url, headers=headers, timeout=self.request_timeout)
+            # v8 routine update: end of change
+            # END ADDED BY CLAUDE
 
             if rsp.status_code == 200:
                 return True, rsp.json()  # Return JSON response
@@ -395,6 +414,86 @@ class Chamber:
         return success
 
 
+    # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - set_humidity_enabled and set_dry_air_purge - main had no humidity OFF or purge command, which the v8 routine needs
+    # v8 routine update (2026-10-20): CHANGED - two new methods, written in the style of set_humidity_value with the same CHNG logging; payloads from Calibration calib/chamber/espec.py:10-11,243-255 at d4db474
+    def set_humidity_enabled(self, enabled):
+        """
+        Switches the humidity system ON or OFF without changing its set value.
+        set_humidity_value always sends "enable": True, so every OFF goes through here.
+
+        :param enabled: True = ON, False = OFF.
+        """
+        data = {
+            "humi": {
+                "group": "loop",
+                "enable": bool(enabled)
+            }
+        }
+
+        success, response = self.execute_command("constants/constant_1", data=data, method="POST")
+        pprint.pprint(response)
+        time.sleep(1)
+
+        dateTime = datetime.now(timezone.utc)
+        sensorIDPost = "CHNG"
+        self.change_ID = 13  # Change ID for Humidity System Set
+
+        # Log the change
+        sensorDictionary = OrderedDict([
+            ("dateTime"     , str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+            ("changeID"     , self.change_ID),
+            ("changeLabel"  , self.change_mapping.get(self.change_ID)),
+            ("newValue"     , self.bool_to_int(bool(enabled))),
+            ("success"      , self.bool_to_int(success)),
+        ])
+        mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+
+        return success
+
+
+    def set_dry_air_purge(self, enabled):
+        """
+        Switches the dry-air purge (DAP) ON or OFF.
+        The payload needs the DAP group the expanded summary reports (write_dap_set),
+        so this refuses (returns False, sends nothing) until one has been read.
+
+        :param enabled: True = ON, False = OFF.
+        """
+        dap_group = getattr(self, "dap_group", None)
+        if dap_group is None:
+            print("Dry air purge not set: no DAP group read yet (call get_and_write_summary(expanded=True) first)")
+            return False
+
+        data = {
+            "dap": {
+                "group": dap_group,
+                "value": bool(enabled)
+            }
+        }
+
+        success, response = self.execute_command("constants/constant_1", data=data, method="POST")
+        pprint.pprint(response)
+        time.sleep(1)
+
+        dateTime = datetime.now(timezone.utc)
+        sensorIDPost = "CHNG"
+        self.change_ID = 14  # Change ID for Dry Air Purge Set
+
+        # Log the change
+        sensorDictionary = OrderedDict([
+            ("dateTime"     , str(dateTime.strftime('%Y-%m-%d %H:%M:%S.%f'))),
+            ("changeID"     , self.change_ID),
+            ("changeLabel"  , self.change_mapping.get(self.change_ID)),
+            ("newValue"     , self.bool_to_int(bool(enabled))),
+            ("success"      , self.bool_to_int(success)),
+        ])
+        mSR.sensorFinisher(dateTime, "BTL433ESC001" + sensorIDPost, sensorDictionary)
+
+        return success
+    # v8 routine update: end of change
+    # END ADDED BY CLAUDE
+
+
     def start_constant_mode(self):
         """
         Starts the chamber in Constant Mode.
@@ -444,6 +543,7 @@ class Chamber:
         self.get_and_write_summary()
 
 
+    # v8 routine update: LEFT ALONE - Chamber.Routine and run_routine - runRoutine.py / runRoutineCustom.py keep working; runRoutineV8.py copies only the RTNCHG / RTNPRGV2 field layout
     class Routine:
         """Routine for controlling temperature and humidity."""
 
