@@ -184,6 +184,52 @@ def rh_dew(t, rh):
 # END ADDED BY CLAUDE
 
 
+# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - fake T640 (latest() on the fake clock) and fake operator
+class FakeT640:
+    """``values(now)`` gives the T640 reading; ``alive(now)`` False = no new read (the last one ages)."""
+
+    def __init__(self, clock, values=None, alive=None):
+        self.clock = clock
+        self.values = values or (lambda now: {"sample_rh": 30.0, "box_t": 40.0, "asc_duty": 50.0, "fault": 0, "pm25": 5.0})
+        self.alive = alive or (lambda now: True)
+        self.t_read, self.last, self.error = None, None, "never read"
+
+    def latest(self):
+        now = self.clock.now
+        if self.alive(now):
+            self.t_read, self.last = now, self.values(now)
+        return self.t_read, self.last
+
+
+class FakeOperator:
+    """Answers ``answers[(kind, point)] = (word or None, delay_s)``; default: pass / go at once. ``safe_at`` sends
+    "safe" once at that fake time."""
+
+    def __init__(self, clock, answers=None, safe_at=None):
+        self.clock, self.answers, self.safe_at = clock, dict(answers or {}), safe_at
+        self.asked = []          # (time, kind, point)
+        self.done = set()
+
+    def poll(self, since, waiting=None):
+        now = self.clock.now
+        if self.safe_at is not None and now >= self.safe_at:
+            self.safe_at = None
+            return "safe"
+        if not waiting:
+            return None
+        kind, point, t_since, choices = waiting
+        key = (kind, point, t_since)
+        if key not in self.done:
+            self.done.add(key)
+            self.asked.append((t_since, kind, point))
+        word, delay = self.answers.get((kind, point), ("pass" if kind == "check" else "go", 0.0))
+        if word is not None and now >= t_since + delay and (key, "answered") not in self.done:
+            self.done.add((key, "answered"))
+            return word
+        return None
+# END ADDED BY CLAUDE
+
+
 # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - run the routine against the simulated controller, all output discarded
 class Result:
     pass
@@ -199,8 +245,10 @@ def make_chamber(clock, ctrl, **kw):
 
 
 def run(point_names=None, start_point=None, skip_precycle=False, skip_bake=False, setup=None, hooks=(),
-        operator_wait=False, t_pv=22.0, rh_pv=30.0, op="standby", wrap=None):
-    """Run one routine; returns a Result with outcome, ctrl, records, clock, routine, points."""
+        operator_wait=False, t_pv=22.0, rh_pv=30.0, op="standby", wrap=None, t640="fake", answers=None, safe_at=None,
+        state=None):
+    """Run one routine; returns a Result with outcome, ctrl, records, clock, routine, points, t640, operator.
+    ``t640``: "fake" (benign readings), None (--no-t640) or fn(clock) -> a T640 object; ``state``: a StateFile."""
     points, stop_row, rules, sha = rr.load_schedule(rr.SCHEDULE_FILE)
     args = rr.parse_args([] + (["--start-point", start_point] if start_point else [])
                          + (["--skip-precycle"] if skip_precycle else []) + (["--skip-bake"] if skip_bake else []))
@@ -214,15 +262,17 @@ def run(point_names=None, start_point=None, skip_precycle=False, skip_bake=False
     mSR.records, mSR.clock = [], clock
     res = Result()
     res.ctrl, res.clock, res.points, res.rules = ctrl, clock, sel, rules
+    res.t640 = FakeT640(clock) if t640 == "fake" else (t640(clock) if t640 else None)
+    res.operator = FakeOperator(clock, answers, safe_at)
     ps = patches(clock, ctrl)
     for p in ps:
         p.start()
     try:
         with open(os.devnull, "w") as devnull, mock.patch("sys.stdout", devnull), \
-                mock.patch("builtins.input", side_effect=lambda *a: res.inputs.append(clock.now) or ""):
-            res.inputs = []
+                mock.patch("builtins.input", side_effect=AssertionError("blocking input() in the routine")):
             chamber = make_chamber(clock, ctrl, request_timeout=rr.REQUEST_TIMEOUT_S)
-            routine = rr.V8Routine(chamber, mSR, sel, rules, sha, t_from0=t_from0, operator_wait=operator_wait)
+            routine = rr.V8Routine(chamber, mSR, sel, rules, sha, t_from0=t_from0, operator_wait=operator_wait,
+                                   t640=res.t640, operator=res.operator, state=state)
             if wrap:
                 wrap(routine)
             clock.hooks.extend(hooks)
