@@ -26,7 +26,6 @@ import os
 import sys
 import time
 import traceback
-from datetime import datetime, timedelta, timezone
 
 from runRoutineV8 import outbox_folder, write_json_atomic
 
@@ -76,16 +75,11 @@ def publish_pending(folder, publish, offsets):
     return n, True
 
 
-def prune(folder, offsets, keep_days):
-    """Forget offsets of files that are gone; delete fully published files older than ``keep_days`` (the CSV files
-    stay the record)."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).strftime("%Y-%m-%d")
+def prune(folder, offsets):
+    """Forget the offsets of outbox files that are gone. Nothing is deleted here (Calibration owner rule 2026-10-21:
+    no code deletes a variable-built path); the outbox (about 15 MB a day) is cleared by a person, like old CSVs."""
     for name in list(offsets):
-        path = os.path.join(folder, name)
-        if not os.path.exists(path):
-            del offsets[name]
-        elif name[:10] < cutoff and offsets[name] >= os.path.getsize(path):
-            os.remove(path)
+        if not os.path.exists(os.path.join(folder, name)):
             del offsets[name]
 
 
@@ -102,7 +96,6 @@ def mqtt_publisher(mL):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Publish runRoutineV8.py's outbox to the MQTT broker.")
     ap.add_argument("--folder", help="outbox folder (default <dataFolder>/<mac>/v8outbox)")
-    ap.add_argument("--keep-days", type=float, default=14.0, help="delete published outbox files older than this")
     ap.add_argument("--once", action="store_true", help="publish what is pending, then exit")
     args = ap.parse_args(argv)
 
@@ -120,7 +113,7 @@ def main(argv=None):
                 print(f"{n} records published")
             if not ok:
                 print(f"Broker not reachable: retrying in {RETRY_S:g} s")
-            prune(folder, offsets, args.keep_days)
+            prune(folder, offsets)
             if os.path.isdir(folder):
                 save_offsets(folder, offsets)
         except Exception:

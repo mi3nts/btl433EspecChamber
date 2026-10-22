@@ -11,8 +11,13 @@
 # Stop it (SIGTERM: humidity OFF, then STOP, as Ctrl-C):
 #   sudo systemctl stop runRoutineV8
 #
-# ExecStopPost runs after EVERY end of the main process, including SIGKILL, the out-of-memory killer and a crash of
-# the interpreter. parkChamberV8.py reads v8/state/state.json and sends humidity OFF and STOP over the LAN only when
+# Type=notify and WatchdogSec as Calibration's runner (Docs/Chamber-Cycle-Runner.md "Run it as a service", host duty
+# 9): the routine sends READY=1 once CONSTANT is reached (or SAFE begins) and WATCHDOG=1 every 10-s tick. A routine
+# that hangs is killed by systemd and then parked. Its longest silence is one tick with a summary read, up to four
+# commands and a read-back, each request bounded by the 10-s connect and read timeouts (about 130 s), hence 300 s.
+#
+# ExecStopPost runs after EVERY end of the main process, including SIGKILL, the out-of-memory killer, the watchdog
+# and a crash of the interpreter. parkChamberV8.py reads v8/state/state.json and sends humidity OFF and STOP over the LAN only when
 # the run has no outcome or ended without a confirmed STOP (never while it runs, never after the chamber left
 # CONSTANT by itself). A power loss of the host is covered at the next boot by v8-park-on-boot.service.
 
@@ -22,7 +27,11 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
+WatchdogSec=300
+# the T640 wait (60 s) and the Chamber set-up come before READY=1
+TimeoutStartSec=300
 User=teamlary
 WorkingDirectory=/home/teamlary/gitHubRepos/btl433EspecChamber/firmware/xu4Mqtt
 Environment=V8_ARGS=
