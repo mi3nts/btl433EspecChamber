@@ -5,32 +5,39 @@ runRoutineV8.py - the v8 calibration routine for the ESPEC BTL-433 (v8 routine u
 NEW FILE on branch feature/v8-routine-update.
 
 WHAT. Runs the points of v8/schedule.tsv in file order (pre1-pre3, 1-30, bake, then the stop row) in CONSTANT mode.
-Per point: a transition that lasts the schedule's window D (the TSV's arrival time minus the previous row's end, never
-shorter than the temperature ramp at the row's rate), with the RH change spread over D; then a timed or guaranteed
-soak from the end of D. The chamber summary is read every 10 s and the T640 every 10 s (Modbus/TCP over the LAN, in
-a background thread). The dew-point guard (dew-point trajectory, dry warm-ups, the first-step rule, the 23 C cap, the
-chamber-PV and T640 HOLD / ABORT rules, the stale-T640 rule) keeps water off the sensors and the sample tube. At the
-end of each pre-cycle hold the operator answers pass or fail; a fail or no answer goes to SAFE. However the script
-ends, the chamber is left stopped (or dried out in SAFE, then stopped); the state file and parkChamberV8.py (systemd
-ExecStopPost) cover the ends the script cannot see itself (SIGKILL, out-of-memory, crash).
+Per point, as the runner: a transition that lasts the schedule's window D (the TSV's arrival time minus the previous
+row's end; extended only when the T ramp at the row's rate needs more than D + 0.5 min), during which T ramps at the
+row's rate and the RH set point follows the dew-point trajectory (an RH-only change goes linearly over D); then a
+timed or guaranteed soak from the end of D. The chamber summary is read every 10 s and the T640 every 10 s
+(Modbus/TCP over the LAN, in a background thread). The dew-point guard (dew-point trajectory, dry warm-ups, the
+first-step rule, the 23 C cap, the chamber-PV and T640 HOLD / ABORT rules, the stale-T640 rule) keeps water off the
+sensors and the sample tube. pre1-pre3: the T640 PM2.5 and chamber RH items of each check are checked by the routine,
+then the operator answers pass or fail (the IPS items); a failure or no answer goes to SAFE. SAFE dries out until
+the chamber and the T640 sample are dry (safe row: early end, hard limit). However the script ends, the chamber is
+left stopped (or dried out in SAFE, then stopped); the state file, the systemd watchdog and parkChamberV8.py (systemd
+ExecStopPost) cover the ends the script cannot see itself (SIGKILL, out-of-memory, a hang, a crash).
 
 PROVENANCE. A simplified copy of Dr. Lary's chamber runner: Calibration tools/run_chamber_cycle.py and
 calib/chamber/cycle.py, psychro.py, schedule.py, espec.py at Calibration commit d4db474 (schedule.tsv last changed at
 d809739). Structure, entry point and data pipeline from Lakitha's runRoutineCustom.py and Chamber.Routine.run_routine
 (main ccc8ab8). Ramp, dew-point, soak, SAFE and abort logic copied and simplified from cycle.py; Magnus formulas
 copied from psychro.py; TSV parsing, the 10-s / 60-s loop, logging glue, console output and the CLI added by Claude.
-The must-fix review (2026-10-22) added the transition window, the T640 reader and rules, the operator answers, the
-local outbox and the state file; the T640 register map is that of teledyneSensing firmware/xu4Mqtt/t640/t640.py.
+The must-fix review (2026-10-22) added the transition window, the T640 reader and rules, the pre-cycle checks, the
+operator answers, the local outbox, the state file and the watchdog; the T640 register map is that of
+teledyneSensing firmware/xu4Mqtt/t640/t640.py. Re-checked the same day against Calibration main c082131 (the
+transferred repository no longer has d4db474; every line range cited here is unchanged there), and the blocks that
+had been reconstructed from the TSV text were replaced by copies of the runner (tagged "at Calibration c082131").
 
 PIPELINE (called, never modified). mintsXU4.especChamber.chamber.Chamber (get_and_write_summary, set_*,
 start_constant_mode, stop_chamber), mintsSensorReader.sensorFinisher (CSV; MQTT is switched off in this process and
 done by publishV8.py from the outbox), mintsDefinitions.credentials. Streams: the existing BTL433ESC001
 STATUS/TMPRT/HMDTY/DAP/PRGRM/CHNG/RTNCHG/RTNPRGV2 and the new BTL433ESC001RTNV8.
 
-LEFT OUT (table "Kept / simplified / dropped" in V8_ROUTINE_UPDATE.md): the rules that need IPS or Influx data (the
-pre-cycle checks themselves are answered by the operator, the IPS/T640 ratio, the purge-excess flag), the WIMDA and
-tube-heater parts of the excursion rule (not logged here), the humid-soak RH shortfall, gate G0, notifications,
---simulate and the JSON-lines events file.
+LEFT OUT (table "Kept / simplified / dropped" in V8_ROUTINE_UPDATE.md): the IPS items (the pre1 LOD and the pre3
+anchor-A ratio are left to the operator, the IPS/T640 ratio abort), the WIMDA and tube-heater parts of the excursion
+rule (not read here), the humid-soak RH shortfall abort and the purge-excess flag (chamber-only, not yet agreed),
+gate G0, notifications, the restart that continues an open SAFE, Restart=on-failure, --simulate and the JSON-lines
+events file.
 
 Usage (from firmware/xu4Mqtt, like the other routine scripts):
     python3 runRoutineV8.py --plan                 # print the timed plan, contact nothing
@@ -55,7 +62,7 @@ import sys
 import threading
 import time
 import traceback
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from datetime import datetime, timedelta, timezone
 
 HERE              = os.path.dirname(os.path.abspath(__file__))
@@ -86,6 +93,10 @@ url   = "http://192.168.20.121"
 GS_GIVE_UP_MIN      = 60.0   # section 5.2: a guaranteed soak whose band has not held 60 min after its hold time is given up
 RESUME_RISE_C       = 5.0    # section 13.1 duty 7: a first / resumed rise of >= 5 C ...
 RESUME_RISE_FROM_RH = 40.0   # ... from >= 40 % RH runs with the humidity system OFF and waits before steam
+
+# COPIED (Dr. Lary) - calib/chamber/cycle.py:81-83 at Calibration c082131 (v8 must-fix review, 2026-10-22)
+RH_RATE_MAX  = 6.0           # section 13.1 duty 5: RH-only changes at <= 6 %/min (first or resumed step only; a scheduled step spreads its RH change over its own window D, which the generator sized at <= 6 %/min)
+ROUNDING_MIN = 0.5           # the generator rounds each transition to whole minutes (tools/make_chamber_schedule.timeline)
 
 # COPIED (Dr. Lary) - calib/chamber/espec.py:47-48 at Calibration d4db474
 RH_RANGE = [10, 95]          # chamber.py set_humidity_value payload
@@ -118,22 +129,6 @@ def dp_trajectory_rh(T, t0, T1, td0, td1):
     return min(100.0, 100.0 * es_hpa(td0 + (td1 - td0) * f) / es_hpa(T))
 
 
-# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 1: the RH change spread over the transition window D
-def window_fraction(e, window_s, T, t_from, T1, td0, td1):
-    """How far (0-1) the dew point has moved from ``td0`` to ``td1`` after ``e`` s of a window of ``window_s`` s.
-
-    The time fraction e / D spreads the change over D. While T also changes, a rising dew point never runs ahead of
-    the T trajectory (the slower of the two fractions) and a falling one never lags it (the faster): the air is
-    never closer to its dew point than on dp_trajectory_rh. An RH-only change (T1 == t_from) follows e / D alone.
-    """
-    f_d = 1.0 if window_s <= 0 else min(1.0, max(0.0, e / window_s))
-    if T1 == t_from:
-        return f_d
-    f_t = min(1.0, max(0.0, (T - t_from) / (T1 - t_from)))
-    return min(f_t, f_d) if td1 > td0 else max(f_t, f_d)
-# END ADDED BY CLAUDE
-
-
 # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - schedule.tsv reader - one source of truth, no point retyped in Python
 # v8 routine update: SIMPLIFIED - the runner validates every column (calib/chamber/schedule.py:354-480); here only the 15 columns of task 5.1 and must-fix 1 are read - the file is the verbatim, sha-logged copy
 class Point:
@@ -157,9 +152,10 @@ class Point:
         self.dew_point          = float(r["dew_point_C"]) if r["dew_point_C"] else None
         self.tag                = r["tag"]
         self.check              = r["check_or_rule"]
-        # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 1: the schedule's arrival time; window_min is set by load_schedule
+        # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 1: the schedule's arrival time (window_min is set by load_schedule); must-fix 3: the pre-cycle check's numbers
         self.arrival_min        = float(r["expected_arrival_min_after_start"])
         self.window_min         = None
+        self.precheck           = parse_precheck(self.name, self.check) if self.is_pre else None
         # END ADDED BY CLAUDE
 
 
@@ -183,12 +179,48 @@ def load_schedule(path):
 # END ADDED BY CLAUDE
 
 
-# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 1: the transition lasts D, never less than the T ramp
+# COPIED (Dr. Lary) - calib/chamber/cycle.py:329-346 (scheduled_window, transition_minutes) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+# v8 must-fix review: SIMPLIFIED - the window itself is computed once in load_schedule (p.window_min); the ramp minutes come from the caller
 def transition_min(p, ramp_min):
-    """Minutes from the transition start to the hold start: the TSV window D, or the T ramp when that is longer
-    (the first TSV row has no D; the arrival times are whole minutes, so D can be a few seconds short of the ramp)."""
-    return ramp_min if p.window_min is None else max(ramp_min, p.window_min)
-# END ADDED BY CLAUDE
+    """The transition window D into ``p``, minutes: the TSV's, extended to the T ramp only when the ramp at the row's
+    rate needs more than D + ROUNDING_MIN (the generator's whole-minute rounding). The first TSV row has no D."""
+    if p.window_min is None:
+        return ramp_min
+    return ramp_min if ramp_min > p.window_min + ROUNDING_MIN else p.window_min
+
+
+# COPIED (Dr. Lary) - calib/chamber/schedule.py:311-351 (parse_precheck) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+# v8 must-fix review: SIMPLIFIED - a dict instead of the PreCheck dataclass; the IPS items (LOD, ratio) are only noted, the operator records them (no IPS feed here)
+def parse_precheck(name, text):
+    """The numbers of a pre-cycle row's check text (pre1 zero/LOD blank, pre2 humid blank, pre3 loading check)."""
+    w = f"{name} check"
+    if "else SAFE + notify" not in text:
+        raise ValueError(f"{w}: the text no longer ends its check with 'else SAFE + notify'")
+    kw = {"name": name}
+    le = re.findall(r"T640 PM2\.5 <= " + NUM + r" ug/m3 \((?:mean of the )?last " + NUM + r" min\)", text)
+    ge = re.findall(r"T640 PM2\.5 >= " + NUM + r" ug/m3 \(last " + NUM + r" min\)", text)
+    if len(le) + len(ge) != 1:
+        raise ValueError(f"{w}: expected exactly one T640 PM2.5 bound with its window, found {len(le) + len(ge)}")
+    if le:
+        kw["pm_max"], kw["pm_window_min"] = float(le[0][0]), float(le[0][1])
+    else:
+        kw["pm_min"], kw["pm_window_min"] = float(ge[0][0]), float(ge[0][1])
+    band = re.findall(r"chamber RH PV within " + NUM + r" \+- " + NUM + r" % within " + NUM + r" min of arrival", text)
+    upper = re.findall(r"chamber RH PV <= " + NUM + r" % within " + NUM + r" min of the step start", text)
+    if band:
+        kw["rh_target"], kw["rh_tol"] = float(band[0][0]), float(band[0][1])
+        kw["rh_within_min"], kw["rh_from"] = float(band[0][2]), "arrival"
+    if upper:
+        kw["rh_max"], kw["rh_within_min"], kw["rh_from"] = float(upper[0][0]), float(upper[0][1]), "start"
+    if not band and not upper and "RH PV" in text:
+        raise ValueError(f"{w}: a chamber RH PV item whose wording the reader does not know")
+    prov = re.findall(r"PROVISIONAL until the first v8 run \(log \+ notify only, not SAFE\): t640_sample_RH <= " + NUM
+                      + r" %", text)
+    if prov:
+        kw["sample_rh_max_provisional"] = float(prov[0])
+    kw["ips"] = [item for item, there in (("IPS blank sd -> LOD", "IPS blank sd" in text),
+                                          ("IPS/T640 PM2.5 ratio (anchor A)", "IPS/T640 PM2.5 ratio" in text)) if there]
+    return kw
 
 
 # COPIED (Dr. Lary) - calib/chamber/schedule.py:230-307 at Calibration d4db474 (the patterns of _grab / parse_excursion / parse_abort / parse_safe)
@@ -229,6 +261,10 @@ def parse_rules(by):
     r["fault_min"], r["fault_srh"] = grab(r"t640_fault = 1 for " + NUM + r" min while t640_sample_RH > " + NUM + r" %", ex)
     (r["t640_stale_min"],) = grab(r"T640 data stale > " + NUM + r" min", ab)                          # 5 min
     # END ADDED BY CLAUDE
+    # COPIED (Dr. Lary) - calib/chamber/schedule.py:302-303 (parse_safe, the early end) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+    r["safe_td_max"], r["safe_rh_sample_max"], r["safe_early_min"], r["safe_max_min"] = grab(
+        r"end early once Td_ch <= " + NUM + r" C and t640_sample_RH <= " + NUM + r" % for " + NUM
+        + r" min; never longer than " + NUM + r" min", sf)                                          # 5 C, 35 %, 10 min, 90 min
     return r
 
 
@@ -239,13 +275,14 @@ def hm(minutes):
 
 def plan_rows(points, t_from0, rules):
     """Per point: (ramp_min, transition_min, start_min, hold_start_min, end_min). The first ramp uses the SAFE rates
-    by direction (cycle.py:826); every transition lasts the TSV window D (must-fix 1)."""
+    by direction and its own ramp time (cycle.py:825-827); every later transition lasts the TSV window D (must-fix 1,
+    cycle.py:839-840)."""
     rows, clock, t_prev = [], 0.0, t_from0
     for k, p in enumerate(points):
         dT = p.t_set - t_prev
         rate = p.ramp_rate if k else (rules["safe_up"] if dT > 0 else rules["safe_down"])
         ramp = abs(dT) / rate if dT else 0.0
-        trans = transition_min(p, ramp)
+        trans = transition_min(p, ramp) if k else ramp
         rows.append((ramp, trans, clock, clock + trans, clock + trans + p.hold_min))
         clock, t_prev = clock + trans + p.hold_min, p.t_set
     return rows
@@ -450,11 +487,12 @@ class StateFile:
 
 class OperatorChannel:
     """The operator's answers: a line typed at the terminal (when stdin is one; Enter alone = go) or
-    ``python3 runRoutineV8.py --operator WORD``, which writes STATE_DIR/operator.json. Each answer is read once;
-    an answer older than ``since`` is dropped."""
+    ``python3 runRoutineV8.py --operator WORD``, which writes STATE_DIR/operator.json. Each answer is read once (by
+    its time; the file is never deleted, Calibration owner rule 2026-10-21); an answer older than ``since`` is
+    dropped."""
 
     def __init__(self, path, tty=None):
-        self.path = path
+        self.path, self.last_time = path, None
         if tty is None:
             try:
                 tty = sys.stdin is not None and sys.stdin.isatty()
@@ -473,17 +511,15 @@ class OperatorChannel:
         try:
             with open(self.path) as f:
                 d = json.load(f)
-            os.remove(self.path)
-            if word is None and float(d.get("time", 0)) >= since:
-                word = str(d.get("answer", "")).strip().lower()
+            t = float(d.get("time", 0))
+            if self.last_time is None or t > self.last_time:
+                self.last_time = t
+                if word is None and t >= since:
+                    word = str(d.get("answer", "")).strip().lower()
         except FileNotFoundError:
             pass
-        except (ValueError, OSError) as e:
+        except (ValueError, OSError, TypeError) as e:
             print(f"Operator file {self.path} unreadable ({e}): ignored")
-            try:
-                os.remove(self.path)
-            except OSError:
-                pass
         return word or None
 
 
@@ -491,6 +527,23 @@ def send_operator_answer(word, state_dir=STATE_DIR):
     write_json_atomic(os.path.join(state_dir, "operator.json"), {"answer": word, "time": time.time(), "pid": os.getpid()})
     print(f"Answer {word!r} written to {os.path.join(state_dir, 'operator.json')}; the routine reads it within 10 s.")
 # END ADDED BY CLAUDE
+
+
+# COPIED (Dr. Lary) - calib/chamber/cycle.py:274-287 (sd_notify) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+def sd_notify(message):
+    """systemd notification (READY=1, WATCHDOG=1) when NOTIFY_SOCKET is set (host duty 9); False otherwise."""
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return False
+    if addr.startswith("@"):
+        addr = "\0" + addr[1:]
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as s:
+            s.connect(addr)
+            s.sendall(message.encode("ascii"))
+        return True
+    except OSError:
+        return False
 
 
 # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 4: no MQTT in the control process
@@ -538,13 +591,13 @@ class V8Routine:
         0: "Run Started", 1: "Transition Started", 2: "Arrived", 3: "Humidity Enabled After Dry Warm-up",
         4: "Dew-Point Hold", 5: "Guaranteed Soak Given Up", 6: "Soak Ended", 7: "Aborted", 8: "SAFE Started",
         9: "SAFE Ended", 10: "Run Ended", 11: "Chamber Left CONSTANT", 12: "Emergency Stop",
-        # v8 must-fix review (2026-10-22): CHANGED - events 13-18 added (T reached inside the window, the pre-cycle answers, the feed change, an operator SAFE request)
-        13: "Temperature Reached", 14: "Pre-cycle Check Passed", 15: "Pre-cycle Check Failed",
-        16: "Pre-cycle Check Unanswered", 17: "Operator Confirmed Feed Change", 18: "Operator Requested SAFE",
+        # v8 must-fix review (2026-10-22): CHANGED - events 13-18 added (the pre-cycle checks, the feed change, an operator SAFE request)
+        13: "Pre-cycle Check Passed", 14: "Pre-cycle Check Failed", 15: "Pre-cycle Check Unanswered",
+        16: "Operator Confirmed Feed Change", 17: "Operator Requested SAFE", 18: "Pre-cycle Provisional Check Exceeded",
     }
 
     def __init__(self, chamber, mSR, points, rules, sha, t_from0=LAB_T_C, operator_wait=True, t640=None, operator=None,
-                 state=None, info=None):
+                 state=None, info=None, watchdog=None):
         self.c, self.mSR, self.points, self.r, self.sha = chamber, mSR, points, rules, sha
         self.operator_wait = operator_wait
         self.tick_s = rules["tick_s"]
@@ -558,7 +611,9 @@ class V8Routine:
         # v8 must-fix review (2026-10-22): CHANGED - one timer per rule ("hold:..." reset at each point), the T640, the operator, the state file
         self.since = {}
         self.t640, self.op, self.state, self.info = t640, operator, state, dict(info or {})
-        self.waiting, self.answer, self.t640_now = None, None, None
+        self.waiting, self.answer, self.t640_now, self.pre, self.safe_end = None, None, None, {}, None
+        self.watchdog = watchdog
+        self.t640_hist = deque()          # (time of the read, values), the last 15 min: the pre-cycle PM2.5 windows
         self.outcome, self.parked, self.hands_off = None, None, False
         self.last_event, self.run_id = None, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     # END ADDED BY CLAUDE
@@ -736,6 +791,14 @@ class V8Routine:
         return round(min(rh, cap_rh), 1)
     # END ADDED BY CLAUDE
 
+    # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - the systemd watchdog ping (sd_notify unless a test passes its own)
+    def ping(self, message):
+        try:
+            (self.watchdog or sd_notify)(message)
+        except Exception:
+            traceback.print_exc()
+    # END ADDED BY CLAUDE
+
     # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - one timer per rule: True once ``cond`` has held for ``minutes``
     def held(self, key, cond, now, minutes):
         if not cond:
@@ -743,13 +806,18 @@ class V8Routine:
             return False
         return now - self.since.setdefault(key, now) >= minutes * 60.0
 
+    # v8 must-fix review (2026-10-22): CHANGED - the stale test as cycle.py:610-613 (older than the limit, counted from the run start at most)
     def t640_values(self, now):
         """The T640's latest values (None with --no-t640); the abort row's stale rule raises Abort."""
         if self.t640 is None:
             return None
         t_read, values = self.t640.latest()
-        age = now - (self.run_start if t_read is None else t_read)
-        if age >= self.r["t640_stale_min"] * 60.0:
+        if t_read is not None and (not self.t640_hist or t_read > self.t640_hist[-1][0]):
+            self.t640_hist.append((t_read, values))
+            while self.t640_hist and self.t640_hist[0][0] < t_read - 15 * 60.0:
+                self.t640_hist.popleft()
+        age = now - max(self.run_start if t_read is None else t_read, self.run_start)
+        if age > self.r["t640_stale_min"] * 60.0:
             raise Abort(f"T640 data stale > {self.r['t640_stale_min']:g} min "
                         f"({'never read' if t_read is None else 'last read %.0f s ago' % age})")
         self.t640_now = values
@@ -763,7 +831,7 @@ class V8Routine:
         if not word:
             return
         if word == "safe":
-            self.log_event(18, detail="operator")
+            self.log_event(17, detail="operator")
             raise Abort("operator requested SAFE")
         if self.waiting and word in self.waiting[3]:
             self.answer = word
@@ -852,6 +920,7 @@ class V8Routine:
                 self.apply(want)
                 last_update = now
             self.status(valid, now)
+            self.ping("WATCHDOG=1")          # v8 must-fix review (2026-10-22): host duty 9, as cycle.py:586
             if done_fn(now, valid):
                 return
             time.sleep(max(0.0, now + self.tick_s - time.time()))
@@ -912,8 +981,9 @@ class V8Routine:
         else:
             raise RunRefused(f"the chamber is in {op!r} mode (a panel programme?); stop it before starting this routine")
         self.expect_constant = True
+        self.ping("READY=1")                 # v8 must-fix review (2026-10-22): as cycle.py:802 (_ready)
 
-    # COPIED (Dr. Lary) - calib/chamber/cycle.py:809-936 (_run_point) at Calibration d4db474
+    # COPIED (Dr. Lary) - calib/chamber/cycle.py:809-936 (_run_point) at Calibration c082131 (the d4db474 lines are unchanged)
     def run_point(self, p, prev, first):
         c, r = self.c, self.r
         self.point = p
@@ -921,9 +991,7 @@ class V8Routine:
         # v8 must-fix review (2026-10-22): CHANGED - asked before anything else of the point, while the previous point's set points and every rule keep running (was a blocking input())
         if prev is not None and p.aerosol_feed != prev.aerosol_feed:
             self.feed_change(prev, p)
-        self.hold_rh, self.hold_noted = None, False
-        for key in [k for k in self.since if k.startswith("hold:")]:
-            del self.since[key]
+        self.hold_rh, self.hold_noted, self.pre = None, False, {}
         self.step_start, self.pulldown_done = time.time(), False
         t_pv = c.temperature_process_value
         t_from = p.t_set if t_pv is None else (t_pv if first else prev.t_set)
@@ -934,32 +1002,42 @@ class V8Routine:
         rate = p.ramp_rate
         if first or rate is None:
             rate = r["safe_up"] if dT > 0 else r["safe_down"]
+        rh_pv0 = c.humidity_process_value
+        humid_on = p.humidity_on and p.rh_set is not None
+        # v8 must-fix review (2026-10-22): CHANGED - must-fix 1, as cycle.py:824-840: a later step lasts the TSV window D (extended only when its ramp needs more than D + 0.5 min); the first step lasts its own ramp from the PV, and an RH-only first step at most RH_RATE_MAX %/min
+        ramp_min = abs(dT) / rate if dT else 0.0
+        if first:
+            d_min = ramp_min
+            if humid_on and ramp_h and dT == 0 and rh_pv0 is not None:
+                d_min = max(d_min, abs(p.rh_set - rh_pv0) / RH_RATE_MAX)
+        else:
+            d_min = transition_min(p, ramp_min)
+            if d_min > p.window_min:
+                print(f"Point {p.name}: the transition is extended by {d_min - p.window_min:.1f} min (the ramp at "
+                      f"{rate:g} C/min needs more than the schedule's {p.window_min:g}-min window)")
         if first:     # host duty 7: dry warm-up / dry pull-down from the actual start (cycle.py:830-837)
-            rh_pv = c.humidity_process_value
-            if dT >= RESUME_RISE_C and rh_pv is not None and rh_pv >= RESUME_RISE_FROM_RH and p.rh_set is not None:
+            if dT >= RESUME_RISE_C and rh_pv0 is not None and rh_pv0 >= RESUME_RISE_FROM_RH and p.rh_set is not None:
                 ramp_h, wait = False, max(wait, r["max_humidify_after"])
             if dT < 0 and p.t_set < 0 and p.rh_set is not None:
                 ramp_h, wait = False, 0.0
             if (ramp_h, wait) != (p.ramp_humidity, p.humidify_after_min):
                 print(f"First-step rule (host duty 7): point {p.name} ramps with humidity OFF, humidity after {wait:g} min")
-        humid_on = p.humidity_on and p.rh_set is not None
         if self.sent.get("humidity") is True and c.humidity_enable == 1 and c.humidity_set_value:
-            td0 = dew_point(t_from, c.humidity_set_value)       # the RH set point in force
+            rh_from = c.humidity_set_value
+            td0 = dew_point(t_from, rh_from)                    # the RH set point in force
         else:
+            rh_from = rh_pv0
             td0 = self.td_pv()                                  # humidity was off: the chamber PV
-        td1 = p.dew_point if p.dew_point is not None else (dew_point(p.t_set, p.rh_set) if humid_on else None)
-        # v8 must-fix review (2026-10-22): CHANGED - also for an RH-only change, which is now spread over D too
-        if humid_on and ramp_h and td0 is None:
+        td1 = dew_point(p.t_set, p.rh_set) if p.rh_set is not None else None
+        if humid_on and ramp_h and dT != 0 and td0 is None:
             td0 = td1
-        # v8 must-fix review (2026-10-22): CHANGED - must-fix 1: the transition lasts the TSV window D (cycle.py:840, 853-854; transition_minutes at schedule.py:334-346): T ramps at the row's rate, the RH change is spread over D (window_fraction), the hold starts at the end of D
-        ramp_s = abs(dT) / rate * 60.0 if dT else 0.0
-        window_s = transition_min(p, ramp_s / 60.0) * 60.0
+        window_s = d_min * 60.0
         print("-" * 78)
         print(f"Point {p.name} ({self.position}/{len(self.points)}, {p.tag}): TRANSITION {t_from:g} -> {p.t_set:g} C at "
-              f"{rate:g} C/min ({ramp_s / 60.0:.1f} min) in a {window_s / 60.0:.1f}-min window, RH "
-              f"{'OFF' if p.rh_set is None else '%g %%' % p.rh_set}, humidity during the window "
-              f"{'ON (dew point spread over the window)' if humid_on and ramp_h else 'OFF'}, purge "
-              f"{'ON' if p.purge else 'OFF'}, aerosol feed {p.aerosol_feed}")
+              f"{rate:g} C/min ({ramp_min:.1f} min) in a {d_min:.1f}-min window, RH "
+              f"{'OFF' if p.rh_set is None else '%g %%' % p.rh_set}, humidity during the ramp "
+              f"{('ON (dew-point trajectory)' if dT else 'ON (linear over the window)') if humid_on and ramp_h else 'OFF'}, "
+              f"purge {'ON' if p.purge else 'OFF'}, aerosol feed {p.aerosol_feed}")
         if self.t640 is None and p.dew_point is not None and p.dew_point >= WATCH_TD_C:
             banner(self.watch_text(p))
         self.phase = "transition"
@@ -968,67 +1046,66 @@ class V8Routine:
 
         # v8 routine update: SIMPLIFIED - runner sends the ramping T set point every 10-s tick (cycle.py:865-869); here a new T set point every 60 s
         t0, sign = time.time(), (1.0 if dT > 0 else -1.0)
-        st = {"t_arr": None, "humid": False}
-
-        def humidity(now, w):
-            """The humidity part of the wanted state, for the window and the soak alike."""
-            if not humid_on:
-                w["humidity"] = False
-            elif ramp_h:
-                f = window_fraction(now - t0, window_s, w["T"], t_from, p.t_set, td0, td1)
-                w.update(humidity=True, RH=p.rh_set if f >= 1.0 else rh_for_dew(td0 + (td1 - td0) * f, w["T"]))
-            elif st["t_arr"] is not None and now - st["t_arr"] >= wait * 60.0:
-                # dry warm-up: humidity_after_min counts from the T arrival, so the window D holds the RH settling
-                w.update(humidity=True, RH=p.rh_set)
-                if not st["humid"]:
-                    st["humid"] = True
-                    print(f"Point {p.name}: dry warm-up done, humidity ON at {p.rh_set:g} % "
-                          f"{(now - st['t_arr']) / 60.0:.1f} min after the temperature arrived")
-                    self.log_event(3, p)
-            else:
-                w["humidity"] = False                           # dry warm-up / humidity-OFF row
-            return w
 
         def want_transition(now):
             e = now - t0
-            T = p.t_set if e >= ramp_s else t_from + sign * rate * e / 60.0
-            return humidity(now, {"T": T, "purge": p.purge})
+            T = p.t_set if e >= window_s else t_from + sign * min(rate * e / 60.0 if dT else 0.0, abs(dT))
+            w = {"T": T, "purge": p.purge}
+            if not humid_on or not ramp_h:
+                w["humidity"] = False                           # dry warm-up / humidity-OFF row
+            elif dT != 0:
+                w.update(humidity=True, RH=dp_trajectory_rh(T, t_from, p.t_set, td0, td1))
+            elif rh_from is not None and window_s > 0:
+                w.update(humidity=True, RH=rh_from + (p.rh_set - rh_from) * min(1.0, e / window_s))   # RH-only: linear over D
+            else:
+                w.update(humidity=True, RH=p.rh_set)
+            return w
 
         def rules_transition(valid, now):
             self.check_rules(valid, now)
-            if st["t_arr"] is None and now - t0 >= ramp_s and valid and not differs(c.temperature_set_value, p.t_set):
-                st["t_arr"] = now
-                self.log_event(13, p, detail=f"{(now - t0) / 60.0:.1f} min into a {window_s / 60.0:.1f}-min window")
+            self.precheck_tick(now, t0, None)
 
-        self.loop(want_transition, lambda now, valid: now - t0 >= window_s and st["t_arr"] is not None,
-                  rules_transition)
+        self.loop(want_transition, lambda now, valid: now - t0 >= window_s, rules_transition)
 
-        t_hold, hold_s = time.time(), p.hold_min * 60.0
+        t_arr, hold_s = time.time(), p.hold_min * 60.0
         self.phase = "soak"
         self.log_rtnchg(10, self.position)
         self.log_event(2, p)
         if p.is_pre:
-            # v8 routine update: SIMPLIFIED - runner checks pre1-pre3 against T640 / IPS data (cycle.py:719-774); here the operator checks them
-            # v8 must-fix review (2026-10-22): CHANGED - must-fix 3: the checklist at arrival, then pass / fail asked at the end of the hold (below)
-            banner(f"OPERATOR CHECKLIST for {p.name} (pass / fail is asked at the end of the {p.hold_min:g}-min hold): "
-                   f"{p.check}")
+            # v8 must-fix review (2026-10-22): CHANGED - must-fix 3: the T640 PM2.5 and chamber RH parts are checked as cycle.py:719-773 does; the operator answers pass / fail at the end of the hold for the rest (IPS)
+            banner(f"PRE-CYCLE CHECK {p.name} (T640 and chamber RH checked by the routine; pass / fail asked at the end "
+                   f"of the {p.hold_min:g}-min hold): {p.check}")
         elif p.check:
             print(f"Operator note for point {p.name}: {p.check}")
-        gs = {"acc": 0.0, "last": None}
+        gs = {"acc": 0.0, "last": None, "humid": False}
 
         def want_soak(now):
-            return humidity(now, {"T": p.t_set, "purge": p.purge})
+            w = {"T": p.t_set, "purge": p.purge}
+            if humid_on and (ramp_h or now - t_arr >= wait * 60.0):
+                w.update(humidity=True, RH=p.rh_set)
+                if not ramp_h and not gs["humid"]:
+                    gs["humid"] = True
+                    print(f"Point {p.name}: dry warm-up done, humidity ON at {p.rh_set:g} % "
+                          f"{(now - t_arr) / 60.0:.1f} min after arrival")
+                    self.log_event(3, p)
+            else:
+                w["humidity"] = False
+            return w
+
+        def rules_soak(valid, now):
+            self.check_rules(valid, now)
+            self.precheck_tick(now, t0, t_arr)
 
         def done_soak(now, valid):
             if p.gs_band is None:
-                return now - t_hold >= hold_s
+                return now - t_arr >= hold_s
             t_pv = c.temperature_process_value
             if gs["last"] is not None and valid and t_pv is not None and abs(t_pv - p.t_set) <= p.gs_band:
                 gs["acc"] += now - gs["last"]
             gs["last"] = now
             if gs["acc"] >= hold_s:
                 return True
-            if now - t_hold >= hold_s + GS_GIVE_UP_MIN * 60.0:
+            if now - t_arr >= hold_s + GS_GIVE_UP_MIN * 60.0:
                 banner(f"WARNING: guaranteed soak at point {p.name} given up: the +-{p.gs_band:g} C band held "
                        f"{gs['acc'] / 60.0:.1f} of {p.hold_min:g} min within {p.hold_min + GS_GIVE_UP_MIN:g} min")
                 self.log_rtnchg(11, self.position)
@@ -1036,20 +1113,85 @@ class V8Routine:
                 return True
             return False
 
-        self.loop(want_soak, done_soak, self.check_rules)
-        self.log_event(6, p)
-        # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 3: a failed or unanswered pre-cycle check goes to SAFE (protocol section 4, abort row); the next point waits for the answer
+        self.loop(want_soak, done_soak, rules_soak)
+        # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 3: the automatic part first (a failure is an abort, cycle.py:933-934), then the operator; a failed or unanswered check goes to SAFE, and the next point waits for the answer
         if p.is_pre:
-            ans = self.ask("check", f"PRE-CYCLE CHECK {p.name}: {p.check}", ("pass", "fail"), want_soak)
+            auto = self.precheck_end(time.time())
+            self.log_event(6, p)
+            ans = self.ask("check", f"PRE-CYCLE CHECK {p.name}: {p.check}\nChecked by the routine: {auto}",
+                           ("pass", "fail"), want_soak)
             if ans == "pass":
-                self.log_event(14, p, detail="operator: pass")
+                self.log_event(13, p, detail=f"{auto}; operator: pass")
             elif ans == "fail":
-                self.log_event(15, p, detail="operator: fail")
+                self.log_event(14, p, detail=f"{auto}; operator: fail")
                 raise Abort(f"pre-cycle check {p.name} failed (operator)")
             else:
-                self.log_event(16, p, detail=f"no answer in {OPERATOR_WAIT_MIN:g} min")
+                self.log_event(15, p, detail=f"{auto}; no answer in {OPERATOR_WAIT_MIN:g} min")
                 raise Abort(f"pre-cycle check {p.name} not answered within {OPERATOR_WAIT_MIN:g} min")
+        else:
+            self.log_event(6, p)
         # END ADDED BY CLAUDE
+
+    # COPIED (Dr. Lary) - calib/chamber/cycle.py:719-733 (_precheck_tick) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+    def precheck_tick(self, now, t_start, t_arr):
+        """The chamber RH PV item of a pre-cycle check, every tick of its transition and soak."""
+        p = self.point
+        chk = p.precheck
+        rh = self.c.humidity_process_value if self.read_ok else None
+        if chk is None or rh is None:
+            return
+        if chk.get("rh_target") is not None and t_arr is not None and abs(rh - chk["rh_target"]) <= chk["rh_tol"]:
+            self.pre["rh_ok"] = True
+        if chk.get("rh_max") is not None and rh <= chk["rh_max"]:
+            self.pre["rh_ok"] = True
+        if chk.get("rh_within_min") is not None and not self.pre.get("rh_ok"):
+            ref = t_arr if chk["rh_from"] == "arrival" else t_start
+            if ref is not None and now - ref > chk["rh_within_min"] * 60.0:
+                want = (f"within {chk['rh_target']:g} +- {chk['rh_tol']:g} %" if chk.get("rh_target") is not None
+                        else f"<= {chk['rh_max']:g} %")
+                self.log_event(14, p, detail=f"automatic: chamber RH PV not {want} within {chk['rh_within_min']:g} min")
+                raise Abort(f"pre-cycle check {p.name}: chamber RH PV not {want} within {chk['rh_within_min']:g} min "
+                            f"of the step {chk['rh_from']}")
+
+    # COPIED (Dr. Lary) - calib/chamber/cycle.py:735-773 (_precheck_end) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+    # v8 must-fix review: SIMPLIFIED - no IPS feed here, so the LOD and the anchor-A ratio are left to the operator's answer; with --no-t640 the PM2.5 item is too
+    def precheck_end(self, now):
+        """The T640 PM2.5 and chamber RH items at the end of a pre-cycle hold; Abort on a failure, else a summary."""
+        p = self.point
+        chk = p.precheck
+
+        def fail(msg):
+            self.log_event(14, p, detail="automatic: " + msg)
+            return Abort(f"pre-cycle check {p.name}: {msg}")
+        done = []
+        if self.t640 is None:
+            done.append("T640 PM2.5 NOT checked (--no-t640)")
+        else:
+            w = chk["pm_window_min"]
+            pm = [v["pm25"] for t, v in self.t640_hist if now - w * 60.0 <= t <= now]
+            if not pm:
+                raise fail(f"no T640 PM2.5 reading in the last {w:g} min")
+            mean = sum(pm) / len(pm)
+            if chk.get("pm_max") is not None and mean > chk["pm_max"]:
+                raise fail(f"T640 PM2.5 mean {mean:.3g} > {chk['pm_max']:g} ug/m3 over the last {w:g} min")
+            if chk.get("pm_min") is not None and mean < chk["pm_min"]:
+                raise fail(f"T640 PM2.5 mean {mean:.3g} < {chk['pm_min']:g} ug/m3 over the last {w:g} min")
+            done.append(f"T640 PM2.5 mean {mean:.3g} ug/m3 over {w:g} min (n {len(pm)}) OK")
+            bound = chk.get("sample_rh_max_provisional")
+            if bound is not None:
+                srh = [v["sample_rh"] for t, v in self.t640_hist if now - w * 60.0 <= t <= now]
+                m = sum(srh) / len(srh) if srh else None
+                if m is None or m > bound:
+                    banner(f"{p.name} PROVISIONAL check: T640 sample RH mean {m} > {bound:g} % (log only, not SAFE)")
+                    self.log_event(18, p, detail=f"t640_sample_RH mean {m} > {bound:g} %")
+                done.append(f"provisional sample RH mean {m if m is None else round(m, 1)} % (bound {bound:g} %)")
+        if chk.get("rh_within_min") is not None:
+            if not self.pre.get("rh_ok"):
+                raise fail(f"chamber RH PV never met the {p.name} RH condition")
+            done.append("chamber RH condition met")
+        if chk["ips"]:
+            done.append("operator: " + ", ".join(chk["ips"]))
+        return "; ".join(done)
 
     # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - aerosol-feed change message (only pre2 -> pre3 in v8); the operator is present at the start
     # v8 must-fix review (2026-10-22): CHANGED - asked through ask() (the loop and the rules keep running; no answer in 30 min = SAFE) instead of a blocking input()
@@ -1062,7 +1204,7 @@ class V8Routine:
                        f"{p.name}, then answer go (Enter)", ("go",), lambda now: dict(self.last_want or {}))
         if ans is None:
             raise Abort(f"aerosol feed change before point {p.name} not confirmed within {OPERATOR_WAIT_MIN:g} min")
-        self.log_event(17, p, detail=f"{prev.aerosol_feed} -> {p.aerosol_feed}")
+        self.log_event(16, p, detail=f"{prev.aerosol_feed} -> {p.aerosol_feed}")
 
     # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 2 fallback: the written watch threshold when the T640 is not read
     def watch_text(self, p):
@@ -1104,7 +1246,7 @@ class V8Routine:
             traceback.print_exc()
 
     # COPIED (Dr. Lary) - calib/chamber/cycle.py:948-1062 (_safe, _safe_guarded) at Calibration d4db474
-    # v8 routine update: SIMPLIFIED - runner's dry-out ends early on Td_ch <= 5 C and t640_sample_RH <= 35 % for 10 min and never lasts over 90 min (cycle.py:1018-1033); here a fixed 60 min (safe row)
+    # v8 routine update: SIMPLIFIED - the runner's guard also needs a temperature PV, and SAFE can start without a reading (restart); here SAFE starts from a CONSTANT chamber
     def safe(self, reason):
         r, c = self.r, self.c
         self.phase, self.hold_rh = "safe", None
@@ -1138,15 +1280,42 @@ class V8Routine:
 
         self.loop(want_ramp, lambda now, valid: "target" in plan and now - plan["start"] >= plan["dur"] and valid
                   and not differs(c.temperature_set_value, round(plan["target"], 1)), guard)
-        print(f"SAFE: dry-out at {plan['target']:g} C, humidity {r['safe_rh']:g} %, purge ON, {r['safe_dry_min']:g} min")
+        print(f"SAFE: dry-out at {plan['target']:g} C, humidity {r['safe_rh']:g} %, purge ON, {r['safe_dry_min']:g} min "
+              f"(early end once dry for {r['safe_early_min']:g} min, never over {r['safe_max_min']:g} min)")
         t_arr = time.time()
-        self.loop(lambda now: {"T": plan["target"], "humidity": True, "RH": r["safe_rh"], "purge": True},
-                  lambda now, valid: now - t_arr >= r["safe_dry_min"] * 60.0, guard)
+        # COPIED (Dr. Lary) - calib/chamber/cycle.py:1012-1033 (the dry-out's end) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+        # v8 must-fix review (2026-10-22): CHANGED - the T640 is read here now, so the early end and the hard limit of the safe row are back (with --no-t640 the dry-out never counts as dry: 90 min)
+        dry = {"since": None}
+
+        def done_dry(now, valid):
+            td = self.td_pv() if valid else None
+            srh = None
+            if self.t640 is not None:
+                t_read, v = self.t640.latest()
+                if t_read is not None and now - t_read <= r["t640_stale_min"] * 60.0:
+                    srh = v["sample_rh"]
+            cond = td is not None and srh is not None and td <= r["safe_td_max"] and srh <= r["safe_rh_sample_max"]
+            dry["since"] = (dry["since"] or now) if cond else None
+            e = now - t_arr
+            if cond and now - dry["since"] >= r["safe_early_min"] * 60.0:
+                why = f"dry for {r['safe_early_min']:g} min"
+            elif cond and e >= r["safe_dry_min"] * 60.0:
+                why = f"{r['safe_dry_min']:g} min of dry-out"
+            elif e >= r["safe_max_min"] * 60.0:
+                why = f"hard limit {r['safe_max_min']:g} min" + ("" if cond else " (not dry)")
+            else:
+                return False
+            print(f"SAFE: dry-out ends after {e / 60.0:.1f} min: {why}")
+            self.safe_end = why
+            return True
+
+        self.loop(lambda now: {"T": plan["target"], "humidity": True, "RH": r["safe_rh"], "purge": True}, done_dry, guard)
         self.stop("SAFE complete")
-        self.log_event(9)
+        self.log_event(9, detail=self.safe_end or "")
         banner("SAFE complete: chamber STOPPED, door closed (the next person opens it)")
 
     def safe_guarded(self, reason):
+        self.ping("READY=1")                 # v8 must-fix review (2026-10-22): as cycle.py:1046, so a Type=notify unit never cuts SAFE short
         try:
             self.safe(reason)
             return "safe"
