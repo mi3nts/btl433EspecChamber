@@ -1,0 +1,25 @@
+# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 5: after a power loss or hard reset of the host
+#
+# If the host went down during a run, the chamber kept its last set point. At the next boot this oneshot reads
+# v8/state/state.json and, when the run has no outcome or no confirmed STOP, sends humidity OFF and STOP over the
+# LAN (parkChamberV8.py --on-boot). It does nothing after a run that ended normally, after the chamber left CONSTANT
+# by itself, or when no v8 run was ever recorded. It never starts a run.
+#
+#   sudo cp v8/systemd/v8-park-on-boot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable v8-park-on-boot
+
+[Unit]
+Description=Park the ESPEC BTL-433 if a v8 run was cut by a host power loss
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=teamlary
+WorkingDirectory=/home/teamlary/gitHubRepos/btl433EspecChamber/firmware/xu4Mqtt
+ExecStart=/usr/bin/python3 -u parkChamberV8.py --on-boot
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target
+# END ADDED BY CLAUDE

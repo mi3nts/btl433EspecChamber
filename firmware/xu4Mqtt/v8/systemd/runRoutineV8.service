@@ -1,0 +1,42 @@
+# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 5: run the v8 routine under systemd, parked on any end
+#
+# Install (paths assume the XU4 layout of the other MINTS units; edit User / WorkingDirectory if they differ):
+#   sudo cp v8/systemd/runRoutineV8.service /etc/systemd/system/ && sudo systemctl daemon-reload
+# Start a run (not enabled at boot on purpose: a run is always started by a person):
+#   sudo systemctl start runRoutineV8                          # options: V8_ARGS in v8/state/run.env, e.g.
+#                                                              #   V8_ARGS=--resume
+# Watch it, answer it:
+#   journalctl -fu runRoutineV8
+#   python3 runRoutineV8.py --operator pass|fail|go|safe
+# Stop it (SIGTERM: humidity OFF, then STOP, as Ctrl-C):
+#   sudo systemctl stop runRoutineV8
+#
+# ExecStopPost runs after EVERY end of the main process, including SIGKILL, the out-of-memory killer and a crash of
+# the interpreter. parkChamberV8.py reads v8/state/state.json and sends humidity OFF and STOP over the LAN only when
+# the run has no outcome or ended without a confirmed STOP (never while it runs, never after the chamber left
+# CONSTANT by itself). A power loss of the host is covered at the next boot by v8-park-on-boot.service.
+
+[Unit]
+Description=v8 calibration routine for the ESPEC BTL-433 (runRoutineV8.py)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=teamlary
+WorkingDirectory=/home/teamlary/gitHubRepos/btl433EspecChamber/firmware/xu4Mqtt
+Environment=V8_ARGS=
+EnvironmentFile=-/home/teamlary/gitHubRepos/btl433EspecChamber/firmware/xu4Mqtt/v8/state/run.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -u runRoutineV8.py $V8_ARGS
+ExecStopPost=/usr/bin/python3 -u parkChamberV8.py --after-exit
+StandardInput=null
+KillSignal=SIGTERM
+KillMode=mixed
+# the emergency stop sends up to four commands with a 10-s timeout each, plus a 1-s pause after each
+TimeoutStopSec=120
+Restart=no
+
+[Install]
+# none: started by hand only
+# END ADDED BY CLAUDE
