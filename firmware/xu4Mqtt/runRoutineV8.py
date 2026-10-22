@@ -14,8 +14,9 @@ first-step rule, the 23 C cap, the chamber-PV and T640 HOLD / ABORT rules, the s
 sensors and the sample tube. pre1-pre3: the T640 PM2.5 and chamber RH items of each check are checked by the routine,
 then the operator answers pass or fail (the IPS items); a failure or no answer goes to SAFE. SAFE dries out until
 the chamber and the T640 sample are dry (safe row: early end, hard limit). However the script ends, the chamber is
-left stopped (or dried out in SAFE, then stopped); the state file, the systemd watchdog and parkChamberV8.py (systemd
-ExecStopPost) cover the ends the script cannot see itself (SIGKILL, out-of-memory, a hang, a crash).
+left stopped (or dried out in SAFE, then stopped). For the ends the script cannot see itself (SIGKILL, out-of-memory,
+a hang, a crash), as the runner: systemd restarts it with --resume, which reads the state file and resumes the run
+or continues an unfinished SAFE; when systemd gives up, parkChamberV8.py (OnFailure=) parks the chamber.
 
 PROVENANCE. A simplified copy of Dr. Lary's chamber runner: Calibration tools/run_chamber_cycle.py and
 calib/chamber/cycle.py, psychro.py, schedule.py, espec.py at Calibration commit d4db474 (schedule.tsv last changed at
@@ -35,8 +36,7 @@ STATUS/TMPRT/HMDTY/DAP/PRGRM/CHNG/RTNCHG/RTNPRGV2 and the new BTL433ESC001RTNV8.
 
 LEFT OUT (table "Kept / simplified / dropped" in V8_ROUTINE_UPDATE.md): the IPS items (the pre1 LOD and the pre3
 anchor-A ratio are left to the operator, the IPS/T640 ratio abort), the WIMDA and tube-heater parts of the excursion
-rule (not read here), the humid-soak RH shortfall abort and the purge-excess flag (chamber-only, not yet agreed),
-gate G0, notifications, the restart that continues an open SAFE, Restart=on-failure, --simulate and the JSON-lines
+rule (not read here), gate G0, notifications, the restart that continues an open SAFE, Restart=on-failure, --simulate and the JSON-lines
 events file.
 
 Usage (from firmware/xu4Mqtt, like the other routine scripts):
@@ -138,6 +138,7 @@ class Point:
         onoff = {"ON": True, "OFF": False}
         self.name               = r["point"]
         self.is_pre             = self.name.startswith("pre")
+        self.is_soak            = not self.is_pre and self.name != "bake"   # schedule.py:356 kind == "soak"
         self.t_set              = float(r["T_set_C"])
         self.rh_set             = None if r["RH_set_pct_or_OFF"] == "OFF" else float(r["RH_set_pct_or_OFF"])
         self.hold_min           = float(r["hold_min_at_setpoint"])
@@ -261,6 +262,12 @@ def parse_rules(by):
     r["fault_min"], r["fault_srh"] = grab(r"t640_fault = 1 for " + NUM + r" min while t640_sample_RH > " + NUM + r" %", ex)
     (r["t640_stale_min"],) = grab(r"T640 data stale > " + NUM + r" min", ab)                          # 5 min
     # END ADDED BY CLAUDE
+    # COPIED (Dr. Lary) - calib/chamber/schedule.py:284-288 (parse_abort: humid-soak shortfall, purge-ON excess) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+    r["humid_T_min"], r["humid_rh_below"], r["humid_min"] = grab(
+        r"humidity ON at a within-chart humid soak \(T >= " + NUM + r" C, past humidify_after\) with RH PV < set - "
+        + NUM + r" % for " + NUM + r" min", ab)                                                     # 15 C, 10 %, 15 min
+    r["purge_rh_above"], r["purge_min"] = grab(
+        r"FLAG \+ notify \(no abort\): RH PV > set \+ " + NUM + r" % for " + NUM + r" min at a purge-ON soak", ab)  # 5 %, 15 min
     # COPIED (Dr. Lary) - calib/chamber/schedule.py:302-303 (parse_safe, the early end) at Calibration c082131 (v8 must-fix review, 2026-10-22)
     r["safe_td_max"], r["safe_rh_sample_max"], r["safe_early_min"], r["safe_max_min"] = grab(
         r"end early once Td_ch <= " + NUM + r" C and t640_sample_RH <= " + NUM + r" % for " + NUM
@@ -326,6 +333,7 @@ class Abort(Exception): pass          # a rule sends the run to SAFE
 class LeftConstant(Exception): pass   # the chamber left CONSTANT by itself (alarm, water out, panel STOP): the interlock wins
 class SafeFailed(Exception): pass     # SAFE could not read or command the chamber for the abort row's limit
 class RunRefused(Exception): pass     # the chamber is in a mode this routine does not take over (a panel programme)
+class NotConstant(Exception): pass    # v8 must-fix review (2026-10-22): SAFE began without a reading and the first one is not CONSTANT (cycle.py:119)
 
 
 def differs(value, target):
@@ -594,10 +602,11 @@ class V8Routine:
         # v8 must-fix review (2026-10-22): CHANGED - events 13-18 added (the pre-cycle checks, the feed change, an operator SAFE request)
         13: "Pre-cycle Check Passed", 14: "Pre-cycle Check Failed", 15: "Pre-cycle Check Unanswered",
         16: "Operator Confirmed Feed Change", 17: "Operator Requested SAFE", 18: "Pre-cycle Provisional Check Exceeded",
+        19: "Purge RH Excess Flag",
     }
 
     def __init__(self, chamber, mSR, points, rules, sha, t_from0=LAB_T_C, operator_wait=True, t640=None, operator=None,
-                 state=None, info=None, watchdog=None):
+                 state=None, info=None, watchdog=None, mode="run", resumed=False):
         self.c, self.mSR, self.points, self.r, self.sha = chamber, mSR, points, rules, sha
         self.operator_wait = operator_wait
         self.tick_s = rules["tick_s"]
@@ -612,7 +621,7 @@ class V8Routine:
         self.since = {}
         self.t640, self.op, self.state, self.info = t640, operator, state, dict(info or {})
         self.waiting, self.answer, self.t640_now, self.pre, self.safe_end = None, None, None, {}, None
-        self.watchdog = watchdog
+        self.watchdog, self.mode, self.resumed = watchdog, mode, resumed
         self.t640_hist = deque()          # (time of the read, values), the last 15 min: the pre-cycle PM2.5 windows
         self.outcome, self.parked, self.hands_off = None, None, False
         self.last_event, self.run_id = None, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -969,6 +978,8 @@ class V8Routine:
                                  f"person watching the T640 sample RH")
         # END ADDED BY CLAUDE
         if not self.read():
+            if self.resumed:        # v8 must-fix review (2026-10-22): as cycle.py:781-787, the chamber may be humid at its last set point
+                raise Abort("the restart cannot read the chamber, which the previous run had in CONSTANT")
             raise RuntimeError("no valid chamber summary at start")
         op = self.c.operationLabel
         if op == "constant":
@@ -992,6 +1003,8 @@ class V8Routine:
         if prev is not None and p.aerosol_feed != prev.aerosol_feed:
             self.feed_change(prev, p)
         self.hold_rh, self.hold_noted, self.pre = None, False, {}
+        for key in ("step:humid_short", "step:purge_excess"):      # cycle.py:814-815
+            self.since.pop(key, None)
         self.step_start, self.pulldown_done = time.time(), False
         t_pv = c.temperature_process_value
         t_from = p.t_set if t_pv is None else (t_pv if first else prev.t_set)
@@ -1095,6 +1108,7 @@ class V8Routine:
         def rules_soak(valid, now):
             self.check_rules(valid, now)
             self.precheck_tick(now, t0, t_arr)
+            self.soak_rules(valid, now, t_arr)
 
         def done_soak(now, valid):
             if p.gs_band is None:
@@ -1131,6 +1145,31 @@ class V8Routine:
         else:
             self.log_event(6, p)
         # END ADDED BY CLAUDE
+
+    # COPIED (Dr. Lary) - calib/chamber/cycle.py:685-702 (_step_rules: humid-soak RH shortfall, purge-ON RH excess) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+    # v8 must-fix review: SIMPLIFIED - the flag is logged (RTNV8 event 19) and printed instead of notified
+    def soak_rules(self, valid, now, t_arr):
+        r, p, c = self.r, self.point, self.c
+        if not valid or c.humidity_process_value is None:
+            return
+        rh_pv = c.humidity_process_value
+        rh_cmd = c.humidity_set_value if c.humidity_enable == 1 else None
+        want = self.last_want or {}
+        # humid-soak RH shortfall (water or steam supply)
+        cond = (p.is_soak and not p.purge and want.get("humidity") is True and rh_cmd is not None
+                and p.t_set >= r["humid_T_min"] and now - t_arr >= p.humidify_after_min * 60.0
+                and rh_pv < rh_cmd - r["humid_rh_below"])
+        if self.held("step:humid_short", cond, now, r["humid_min"]):
+            raise Abort(f"RH PV {rh_pv:g} % < set {rh_cmd:g} % - {r['humid_rh_below']:g} % for {r['humid_min']:g} min at "
+                        f"a humid soak (water or steam supply)")
+        # purge-ON RH excess: FLAG, no abort
+        cond = p.purge and rh_cmd is not None and rh_pv > rh_cmd + r["purge_rh_above"]
+        if self.held("step:purge_excess", cond, now, r["purge_min"]) and not self.pre.get("purge_flag"):
+            self.pre["purge_flag"] = True
+            msg = (f"RH PV {rh_pv:g} % > set {rh_cmd:g} % + {r['purge_rh_above']:g} % for {r['purge_min']:g} min with "
+                   f"the purge ON (purge or compressed air short)")
+            banner(f"FLAG at point {p.name}: {msg}")
+            self.log_event(19, p, detail=msg)
 
     # COPIED (Dr. Lary) - calib/chamber/cycle.py:719-733 (_precheck_tick) at Calibration c082131 (v8 must-fix review, 2026-10-22)
     def precheck_tick(self, now, t_start, t_arr):
@@ -1265,6 +1304,10 @@ class V8Routine:
                 raise SafeFailed(f"SAFE could not read or command the chamber for {limit / 60.0:g} min")
 
         def want_ramp(now):
+            if not self.expect_constant and self.read_ok:     # cycle.py:976-981: SAFE began without a reading
+                if c.operationLabel != "constant":
+                    raise NotConstant(c.operationLabel)
+                self.expect_constant = True
             if "target" not in plan:
                 t_pv = c.temperature_process_value if self.read_ok else None
                 if t_pv is None:
@@ -1278,8 +1321,15 @@ class V8Routine:
                 plan["t_from"] + math.copysign(plan["rate"] * e / 60.0, plan["target"] - plan["t_from"])
             return {"T": T, "humidity": False}
 
-        self.loop(want_ramp, lambda now, valid: "target" in plan and now - plan["start"] >= plan["dur"] and valid
-                  and not differs(c.temperature_set_value, round(plan["target"], 1)), guard)
+        try:
+            self.loop(want_ramp, lambda now, valid: "target" in plan and now - plan["start"] >= plan["dur"] and valid
+                      and not differs(c.temperature_set_value, round(plan["target"], 1)), guard)
+        except NotConstant as e:
+            note = f"the chamber is already {e}; nothing to dry out"
+            banner(f"SAFE: {note}")
+            self.parked = str(e) == "standby"
+            self.log_event(9, detail=note)
+            return
         print(f"SAFE: dry-out at {plan['target']:g} C, humidity {r['safe_rh']:g} %, purge ON, {r['safe_dry_min']:g} min "
               f"(early end once dry for {r['safe_early_min']:g} min, never over {r['safe_max_min']:g} min)")
         t_arr = time.time()
@@ -1332,7 +1382,7 @@ class V8Routine:
             self.emergency_stop(f"SAFE failed: {e}")
             return "safe_failed"
 
-    # COPIED (Dr. Lary) - calib/chamber/cycle.py:1097-1184 (run) at Calibration d4db474
+    # COPIED (Dr. Lary) - calib/chamber/cycle.py:1097-1184 (run) at Calibration d4db474 (continue-SAFE mode as c082131)
     # v8 routine update: SIMPLIFIED - no events log, no notifications; the outcome is printed and logged to RTNCHG / RTNV8
     # v8 must-fix review (2026-10-22): CHANGED - the outcome, the confirmed STOP and the hands-off case go to the state file, which decides what a restart may do (main) and what parkChamberV8.py does
     def run(self):
@@ -1342,14 +1392,17 @@ class V8Routine:
         print(f"Run started: {len(self.points)} points, schedule sha256 {self.sha}, first aerosol feed "
               f"{self.points[0].aerosol_feed}, T640 {'NOT READ (--no-t640)' if self.t640 is None else 'read every 10 s'}")
         try:
-            self.startup()
-            for k, p in enumerate(self.points):
-                self.position = k + 1
-                self.run_point(p, self.points[k - 1] if k else None, first=(k == 0))
-            self.phase = "stop"
-            stopped = self.stop("run complete")
-            banner("Run complete, chamber STOPPED" + (". Open the door (stop row)." if stopped else ""))
-            outcome = "complete" if stopped else "stop_unconfirmed"
+            if self.mode == "continue_safe":
+                outcome = self.continue_safe()
+            else:
+                self.startup()
+                for k, p in enumerate(self.points):
+                    self.position = k + 1
+                    self.run_point(p, self.points[k - 1] if k else None, first=(k == 0))
+                self.phase = "stop"
+                stopped = self.stop("run complete")
+                banner("Run complete, chamber STOPPED" + (". Open the door (stop row)." if stopped else ""))
+                outcome = "complete" if stopped else "stop_unconfirmed"
         except Abort as e:
             banner(f"ABORT at point {self.point.name}: {e}")
             self.log_event(7, detail=str(e))
@@ -1381,6 +1434,10 @@ class V8Routine:
             except Exception:
                 traceback.print_exc()
                 self.save_state()
+        self.print_outcome(outcome)
+        return outcome
+
+    def print_outcome(self, outcome):
         if outcome == "complete":
             print("Outcome: complete")
         elif blocked_reason(self.state.read() if self.state else {"outcome": outcome}):
@@ -1388,18 +1445,60 @@ class V8Routine:
                   f"inspected.")
         else:
             print(f"Outcome: {outcome}. Resume with: python3 runRoutineV8.py --resume (point {self.point.name})")
-        return outcome
+
+    # COPIED (Dr. Lary) - calib/chamber/cycle.py:1133-1146 (run, mode continue_safe) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+    def continue_safe(self):
+        """The restart of a run that died or was interrupted inside an ABORT / SAFE: SAFE again, never the cycle."""
+        banner("Restart found an unfinished ABORT / SAFE in the state file: continuing SAFE (the cycle is not restarted)")
+        self.phase = "safe"
+        valid = self.read()
+        if valid and self.c.operationLabel != "constant":
+            note = f"the chamber is already {self.c.operationLabel!r}; nothing to dry out"
+            banner(f"SAFE: {note}")
+            self.parked = self.c.operationLabel == "standby"
+            self.log_event(9, detail=note)
+            return "safe"
+        self.expect_constant = valid
+        return self.safe_guarded("restart found an unfinished ABORT / SAFE in the state file")
 
 
-# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 5: what the last run's state allows
+# COPIED (Dr. Lary) - calib/chamber/cycle.py:96 (exit codes), 1063-1067 (_safe_outcome) at Calibration c082131 (v8 must-fix review, 2026-10-22)
+# the exit code tells systemd a deliberate end (no restart: RestartPreventExitStatus) from a crash (restart, --resume)
+EXIT_OK, EXIT_USAGE, EXIT_ABORTED, EXIT_LEFT_CONSTANT, EXIT_FAILURE, EXIT_INTERRUPTED = 0, 2, 3, 4, 5, 130
+
+
+def exit_code(outcome):
+    if outcome == "complete":
+        return EXIT_OK
+    if outcome == "refused":
+        return EXIT_USAGE
+    if outcome == "safe":
+        return EXIT_ABORTED
+    if outcome.endswith("left_constant"):
+        return EXIT_LEFT_CONSTANT
+    if outcome.endswith("interrupted"):
+        return EXIT_INTERRUPTED
+    return EXIT_FAILURE          # safe_failed, stop_unconfirmed, an error (even one whose SAFE completed)
+
+
+# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 5: what the last run's state allows (the runner's previous_run / _decide, cycle.py:172-207, 1069-1095, from the state file instead of an events log)
+def unfinished(prev):
+    """The run ended without a final outcome: killed, crashed (then parked or not) or interrupted."""
+    out = prev.get("outcome")
+    return out is None or out == "interrupted" or out.startswith("died")
+
+
+def safe_open(prev):
+    """An ABORT / SAFE that never reached its end: the run died or was interrupted inside it (cycle.py:206)."""
+    return unfinished(prev) and (prev.get("phase") == "safe" or prev.get("last_event") == 7)
+
+
 def blocked_reason(prev):
-    """Why the previous run's state forbids a start or a resume without --clear-abort (None = allowed)."""
-    if not prev:
+    """Why the previous run's state forbids a new start without --clear-abort (None = allowed): a finished abort."""
+    if not prev or unfinished(prev):
         return None
     out = prev.get("outcome")
-    if prev.get("phase") == "safe" or prev.get("last_event") == 7:     # however it ended after that (parked, interrupted)
-        return f"the previous run aborted to SAFE at point {prev.get('point')} (outcome {out!r})"
-    if out is None or out in ("complete", "interrupted", "refused", "error") or out.startswith("died"):
+    if out in ("complete", "refused", "error"):
         return None             # "error" alone: an error before CONSTANT, humidity OFF and STOP sent, no SAFE
     return f"the previous run ended with outcome {out!r} at point {prev.get('point')}"
 # END ADDED BY CLAUDE
@@ -1423,10 +1522,13 @@ def parse_args(argv):
     ap.add_argument("--t640-check", action="store_true", help="read the T640 three times and print it, contact nothing else")
     ap.add_argument("--operator", choices=("pass", "fail", "go", "safe"),
                     help="answer the running routine (pre-cycle check pass / fail, feed change go) or send it to SAFE")
-    ap.add_argument("--resume", action="store_true", help="resume at the point the state file names")
+    ap.add_argument("--resume", action="store_true",
+                    help="resume an unfinished run at the point the state file names (else start as asked); an "
+                         "unfinished ABORT / SAFE is always continued")
     ap.add_argument("--clear-abort", metavar="WHAT_WAS_CHECKED",
                     help="allow a start after an aborted / SAFE / unconfirmed run, saying what was checked")
     ap.add_argument("--state-dir", default=STATE_DIR, help=f"state.json and operator.json (default {STATE_DIR})")
+    ap.set_defaults(continue_safe=False, resumed=False)
     # END ADDED BY CLAUDE
     return ap.parse_args(argv)
 
@@ -1458,25 +1560,40 @@ def install_signal_handlers():
 
 
 def start_gate(args, sha, state):
-    """None when this start is allowed (``args.start_point`` set for --resume); else the exit code after a message."""
+    """None when this start is allowed (``args.start_point`` / ``args.continue_safe`` set as the state requires); else
+    the exit code after a message. As the runner's _decide (cycle.py:1069-1095): an unfinished ABORT / SAFE is
+    continued, never followed by a cycle; a finished abort is refused; an unfinished run needs --resume (or
+    --start-point). One difference: with --resume an unfinished run resumes even when --start-point is given too, so
+    the systemd unit (--resume always, the options in run.env) resumes after a crash instead of starting over."""
     prev = state.read()
     if prev and prev.get("outcome") is None and pid_alive(prev):
         print(f"Refused: the routine is already running (pid {prev.get('pid')}, point {prev.get('point')}).")
-        return 3
+        return EXIT_USAGE
+    if prev and safe_open(prev):
+        if args.start_point is not None or args.resume:
+            print("--start-point / --resume ignored: the last run left an ABORT / SAFE unfinished; SAFE is continued "
+                  "and the cycle is not restarted (host duty 9)")
+        args.start_point, args.continue_safe = prev.get("point"), True
+        return None
     why = blocked_reason(prev)
     if why and not args.clear_abort:
         print(f"Refused: {why}.\nInspect the chamber (dry, door, water), then start with --clear-abort \"<what was "
               f"checked>\". The state file is {state.path}.")
-        return 3
-    if args.resume:
-        if not prev or not prev.get("point") or prev.get("outcome") == "complete":
-            print("Refused: --resume has nothing to resume (no state, or the last run completed).")
-            return 3
-        if prev.get("schedule_sha") != sha:
-            print("Refused: --resume with a different schedule.tsv than the run being resumed; use --start-point.")
-            return 3
-        args.start_point = prev["point"]
-        print(f"Resuming at point {args.start_point} (last run: outcome {prev.get('outcome')}, phase {prev.get('phase')}).")
+        return EXIT_USAGE
+    if prev and unfinished(prev):
+        if args.resume:
+            if prev.get("schedule_sha") != sha:
+                print("Refused: --resume with a different schedule.tsv than the run being resumed; use --start-point.")
+                return EXIT_USAGE
+            args.start_point, args.resumed = prev.get("point"), True
+            print(f"Resuming at point {args.start_point} (last run: outcome {prev.get('outcome')}, phase "
+                  f"{prev.get('phase')}).")
+        elif args.start_point is None:
+            print(f"Refused: the last run is unfinished (outcome {prev.get('outcome')!r} at point {prev.get('point')}): "
+                  f"pass --resume, or --start-point to start elsewhere.")
+            return EXIT_USAGE
+    elif args.resume:
+        print("--resume: no unfinished run in the state file; starting as asked.")
     return None
 
 
@@ -1515,13 +1632,17 @@ def main(argv=None, schedule_path=SCHEDULE_FILE):
         if code is not None:
             return code
     # END ADDED BY CLAUDE
-    run, t_from0 = select_points(points, args)
-    skipped = [p.name for p in points if p not in run]
     print("v8 calibration routine (v8 routine update, 2026-10-20; must-fix review, 2026-10-22)")
-    if not print_plan(run, t_from0, rules, sha, stop_row, schedule_path):
-        return 2
-    if skipped:
-        print(f"  Not run (by the options given): {', '.join(skipped)}")
+    if args.continue_safe:          # v8 must-fix review (2026-10-22): only SAFE runs; the point is kept for the records
+        run, t_from0 = [p for p in points if p.name == args.start_point] or points[:1], LAB_T_C
+        print(f"Continuing the unfinished SAFE of point {run[0].name}; the cycle is not restarted.")
+    else:
+        run, t_from0 = select_points(points, args)
+        skipped = [p.name for p in points if p not in run]
+        if not print_plan(run, t_from0, rules, sha, stop_row, schedule_path):
+            return 2
+        if skipped:
+            print(f"  Not run (by the options given): {', '.join(skipped)}")
     if args.plan:
         return 0
     # END ADDED BY CLAUDE
@@ -1567,8 +1688,9 @@ def main(argv=None, schedule_path=SCHEDULE_FILE):
         info["cleared_abort"] = {"by": args.clear_abort, "previous": state.read()}
     routine = V8Routine(chamber, mSR, run, rules, sha, t_from0=t_from0, operator_wait=not args.no_operator_wait,
                         t640=t640, operator=OperatorChannel(os.path.join(args.state_dir, "operator.json")),
-                        state=state, info=info)
-    return 0 if routine.run() == "complete" else 1
+                        state=state, info=info, mode="continue_safe" if args.continue_safe else "run",
+                        resumed=args.resumed)
+    return exit_code(routine.run())
 
 
 if __name__ == "__main__":
