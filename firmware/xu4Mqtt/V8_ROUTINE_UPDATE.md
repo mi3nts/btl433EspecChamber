@@ -24,7 +24,7 @@ The review of the first version found five must-fix items. All five are fixed on
 | 2 | No T640 protection: only the chamber dew-point rules, which cannot fire below the 24 °C hold threshold | The T640 is read locally over Modbus/TCP every 10 s; the sample-RH HOLD / ABORT, dew point against the box T, fault bit and stale-T640 rules are back ([Condensation guard](#condensation-guard)) |
 | 3 | A failed pre-cycle check went to STOP (Ctrl-C), leaving the chamber humid after pre2 | The T640 PM2.5 and chamber RH items are checked by the routine (copied from the runner); then pass / fail is asked for the rest; a failure or no answer runs the guarded SAFE; all logged ([Pre-cycle checks](#pre-cycle-checks)) |
 | 4 | MQTT to the UTD broker inside the 10-s control loop (blocking connect, up to 5 s per record) | The control process writes CSV and a local outbox only; `publishV8.py` publishes from its own process ([Logging](#logging)) |
-| 5 | Nothing parked the chamber on SIGHUP, SIGKILL, out-of-memory or power loss, and a restart had no state | SIGHUP trapped; atomic state file at every event; systemd unit with the runner's watchdog, an `ExecStopPost` park hook and a park-at-boot unit ([State, restarts and the park hook](#state-restarts-and-the-park-hook)) |
+| 5 | Nothing parked the chamber on SIGHUP, SIGKILL, out-of-memory or power loss, and a restart had no state | SIGHUP trapped; atomic state file at every event; systemd unit as the runner's: watchdog, restart with `--resume` (resumes the run, or continues an unfinished SAFE), `OnFailure=` park unit; plus a park-at-boot unit ([State, restarts and the park hook](#state-restarts-and-the-park-hook)) |
 
 ### Re-check against the runner (2026-10-22, Calibration `c082131`)
 
@@ -69,7 +69,7 @@ been pushed, so `main`'s runner, which reads Influx, is the reference; its rules
 | Abort rules | None | Abort list and excursion ABORT (chamber, T640, IPS) | Chamber, T640 and stale-T640 rules; pre-cycle T640 / chamber items checked, IPS items answered by the operator |
 | Failure handling | Chamber stopped only after a normal end | SAFE dry-out, emergency STOP, watchdog | SAFE dry-out (early end, 90-min limit), emergency STOP, watchdog, park hook after any end of the process |
 | Logging | `BTL433ESC001*` via `sensorFinisher` (CSV + MQTT inline) | JSON-lines events file (writes no `BTL433ESC001*` stream) | `BTL433ESC001*` via `sensorFinisher` (CSV inline, MQTT from `publishV8.py`), plus `BTL433ESC001RTNV8` events |
-| Size | 53 lines + `Chamber.Routine` | ~2,900 lines | `runRoutineV8.py` 1,576 lines (1,194 code, 209 comments and docstrings, 173 blank), `publishV8.py` 128, `parkChamberV8.py` 118 |
+| Size | 53 lines + `Chamber.Routine` | ~2,900 lines | `runRoutineV8.py` 1,698 lines, `publishV8.py` 128, `parkChamberV8.py` 118 |
 
 ---
 
@@ -205,7 +205,7 @@ No answer within 30 min = SAFE. Any time: --operator safe.
 | Ctrl-C, SIGTERM (`systemctl stop`) or SIGHUP (closed terminal / dropped SSH without `screen`) | Humidity OFF, then STOP, at once (each tried twice) |
 | Abort rule, failed or unanswered pre-cycle check, `--operator safe`, or an unexpected error once in CONSTANT | Simplified SAFE (below) |
 | Error before CONSTANT | Humidity OFF, then STOP |
-| SIGKILL, out-of-memory kill, interpreter crash, a hang (systemd watchdog, 300 s) | `parkChamberV8.py` (systemd `ExecStopPost`): humidity OFF, then STOP over the LAN |
+| SIGKILL, out-of-memory kill, interpreter crash, a hang (systemd watchdog, 300 s) | systemd restarts the routine after 15 s with `--resume`: it resumes at the point it was on, or continues SAFE if it died inside an abort / SAFE. When systemd gives up (more than 5 starts in 30 min, or a deliberate failure), `parkChamberV8.py` (`OnFailure=`): humidity OFF, then STOP over the LAN |
 | Power loss or hard reset of the host | At the next boot, `v8-park-on-boot.service`: humidity OFF, then STOP |
 | The chamber leaves CONSTANT by itself (alarm, water out, panel STOP) | Nothing more is sent: log, print, exit. The interlock wins (the park hook leaves it alone too). |
 | The chamber is in program mode at start, or no T640 reading | Refused, nothing is sent |
@@ -233,7 +233,12 @@ and STOP and exits.
   update);
 - the pull-down to −18 °C not reached within 90 min at the −20 °C point;
 - T640 data stale for 5 min;
+- humidity ON at a humid soak (T ≥ 15 °C, purge OFF, past `humidify_after_min`) with the RH PV more than 10 % below its
+  set point for 15 min: the water or steam supply is short (`cycle.py:689-695`);
 - the excursion ABORT parts listed in the [Condensation guard](#condensation-guard).
+
+**Flag, no abort:** at a purge-ON soak, an RH PV more than 5 % above its set point for 15 min (the purge or the
+compressed air is short): printed and logged once per point as `RTNV8` event 19 (`cycle.py:696-702`).
 
 **Read-back.** After each command the routine reads the summary again and compares the set value or state with what
 it sent. `Chamber` has `request_timeout`; the routine uses 10 s, so a hung request cannot freeze the run.
@@ -245,18 +250,27 @@ before the event is logged: run id, pid, host, boot id, schedule sha, point, pos
 detail, outcome (empty while the run is live), whether the routine confirmed its own STOP, and whether it must keep
 its hands off.
 
-A new start reads it first:
+A new start reads it first and decides as the runner's `_decide` (`cycle.py:1069-1095`):
 
-| Last state | `python3 runRoutineV8.py` | `--resume` |
+| Last state | `python3 runRoutineV8.py` | `--resume` (always passed by the systemd unit) |
 |---|---|---|
 | A live run (same host and boot, pid alive) | Refused | Refused |
-| Aborted to SAFE (or died during SAFE), `safe_failed`, `left_constant`, `stop_unconfirmed`, `error, …` | Refused until `--clear-abort "<what was checked>"` | Refused |
-| `complete` | Starts | Nothing to resume |
-| `interrupted`, `refused`, died outside SAFE (parked by the hook) | Starts | Starts at the point the state names (same schedule sha only) |
+| Died or interrupted inside an abort / SAFE | SAFE is continued; the cycle is not restarted | Same (`--resume` / `--start-point` ignored) |
+| A finished abort: `safe`, `safe_failed`, `left_constant`, `stop_unconfirmed`, `error, …` | Refused until `--clear-abort "<what was checked>"` | Refused |
+| Unfinished: died (killed, crashed; parked or not) or `interrupted`, outside SAFE | Refused unless `--start-point` | Resumes at the point the state names (same schedule sha only), even if `run.env` has a `--start-point` |
+| `complete`, `refused`, `error` before CONSTANT, or no state | Starts as asked | Starts as asked (nothing to resume) |
+
+A resumed run starts from the chamber PV with the first-step rule. If it cannot read the chamber at start it aborts to
+SAFE (the chamber may be humid at its last set point), as the runner does. A continued SAFE on a chamber that is
+already stopped sends nothing ("nothing to dry out").
+
+**Exit codes** (the runner's): 0 complete, 2 refused (cap check or state), 3 SAFE completed, 4 the chamber left
+CONSTANT by itself, 5 a failure (SAFE failed, STOP unconfirmed, an error), 130 interrupted. systemd restarts on a crash
+and on 5, never on 2, 3, 4 or 130.
 
 `--clear-abort` keeps the previous state and the reason given inside the new run's state.
 
-`parkChamberV8.py` reads the same file. It parks the chamber (humidity OFF, then STOP, each tried twice, read back
+`parkChamberV8.py` (the `OnFailure=` unit `v8-park.service`, and `v8-park-on-boot.service`) reads the same file. It parks the chamber (humidity OFF, then STOP, each tried twice, read back
 `standby`) only when the run has no outcome or ended without a confirmed STOP, and never while the run is alive,
 after the chamber left CONSTANT by itself, or after a refused start. It records `died, parked` (or `died, park NOT
 confirmed`), the systemd `SERVICE_RESULT` / `EXIT_STATUS`, and the previous outcome.
@@ -286,7 +300,7 @@ day, cleared by a person like the old CSV files.
 warm-up, 4 dew-point hold, 5 guaranteed soak given up, 6 soak ended, 7 aborted, 8 SAFE started, 9 SAFE ended, 10 run
 ended, 11 chamber left CONSTANT, 12 emergency stop, 13 / 14 / 15 pre-cycle check passed / failed (automatic or
 operator) / unanswered, 16 operator confirmed the feed change, 17 operator requested SAFE, 18 the provisional pre2
-sample-RH bound exceeded (log only). `detail` holds the rule that fired, the check results, the answer, the SAFE
+sample-RH bound exceeded (log only), 19 purge-ON RH excess flag (log only). `detail` holds the rule that fired, the check results, the answer, the SAFE
 dry-out's end or the outcome. The `BTL433ESC001` prefix keeps the stream in the pipeline's
 `REF_MEAS_PREFIXES`.
 
@@ -330,14 +344,15 @@ python3 runRoutineV8.py
 | `--no-operator-wait` | Do not wait for the operator at the aerosol-feed change (the pre-cycle checks are still asked). |
 | `--state-dir` | Where `state.json` and `operator.json` live (default `v8/state`). |
 
-Exit code 0 when the run completed and the STOP was confirmed, 1 otherwise, 2 when refused by the cap check, 3 when
-refused by the state file. The last line printed says whether to `--resume` or to `--clear-abort`.
+Exit codes: see [State, restarts and the park hook](#state-restarts-and-the-park-hook). The last line printed says
+whether to `--resume` or to `--clear-abort`.
 
-**Under systemd** (recommended for the weekend: SIGKILL / out-of-memory / crash are then parked too). Paths in the unit
+**Under systemd** (recommended for the weekend: a SIGKILL, out-of-memory kill, crash or hang is then restarted and
+resumed, and the chamber is parked if systemd gives up). Paths in the unit
 files assume `/home/teamlary/gitHubRepos/btl433EspecChamber` and user `teamlary`; edit them if the XU4 differs.
 
 ```bash
-sudo cp v8/systemd/runRoutineV8.service v8/systemd/v8-park-on-boot.service v8/systemd/publishV8.service /etc/systemd/system/
+sudo cp v8/systemd/runRoutineV8.service v8/systemd/v8-park.service v8/systemd/v8-park-on-boot.service v8/systemd/publishV8.service /etc/systemd/system/
 ```
 
 ```bash
@@ -352,11 +367,14 @@ sudo systemctl start runRoutineV8
 journalctl -fu runRoutineV8
 ```
 
-Options go in `v8/state/run.env` (for example `V8_ARGS=--resume`). Under systemd the routine has no terminal: answer
+Options go in `v8/state/run.env` (for example `V8_ARGS=--skip-precycle --start-point 1`); `--resume` is always in the
+unit's `ExecStart`. Under systemd the routine has no terminal: answer
 with `python3 runRoutineV8.py --operator …`. `sudo systemctl stop runRoutineV8` is SIGTERM (humidity OFF, then STOP).
 The unit is `Type=notify` with `WatchdogSec=300`, as the runner's: `systemctl start` returns once CONSTANT is reached,
-and a routine that stops pinging for 300 s is killed and parked. `runRoutineV8.service` is never enabled at boot and
-has no `Restart=`: a person always starts a run (the runner restarts itself with `--resume`; see open questions).
+and a routine that stops pinging for 300 s is killed and restarted. `Restart=on-failure` with `RestartSec=15`
+restarts it after a crash; `RestartPreventExitStatus=2 3 4 130` keeps deliberate ends ended. `runRoutineV8.service`
+is never enabled at boot: a person starts the first run; after a host power loss `v8-park-on-boot.service` parks the
+chamber and a person restarts the run (`systemctl start runRoutineV8` resumes it).
 
 Tests (hermetic: simulated chamber, fake clock, fake T640 or a Modbus server on 127.0.0.1, no MQTT, `credentials.yml`
 never read):
@@ -383,13 +401,13 @@ python3 -m unittest discover -s tests -v
 | Pre-cycle checks pre1–pre3 | **Kept** for the T640 PM2.5 and chamber RH items; **simplified** for the IPS items (operator answer); fail or no answer → SAFE | No IPS feed here; must-fix 3 |
 | Abort list: T640 stale | **Kept** (must-fix 2) | |
 | Abort list: IPS/T640 ratio | **Dropped** | Needs the IPS |
-| Abort list: humid-soak RH shortfall; purge-excess flag | **Dropped** for now | Chamber-only, so they could be copied (`cycle.py:689-702`); see open questions |
+| Abort list: humid-soak RH shortfall; purge-excess flag | **Kept** (the flag is printed and logged, not notified) | Chamber data only |
 | Abort list: no reading, unconfirmed, pull-down | **Kept** | Chamber data only |
 | SAFE dry-out | **Kept** (early end, 90-min limit) | The T640 is read here now |
-| Restart that continues an open SAFE (`_decide`) | **Simplified**: a start after an abort is refused until `--clear-abort`; the park hook stops a chamber left in SAFE | The park hook leaves nothing to continue |
+| Restart that continues an open SAFE, resumes an unfinished run, refuses a finished abort (`_decide`) | **Kept** (from the state file; a finished abort needs `--clear-abort` instead of a new events file) | Must-fix 5 |
 | Chamber left CONSTANT → hands off | **Kept** | Interlock wins |
 | Command client with retries and back-off (`espec.py`) | **Simplified**: `Chamber` + one read-back; unconfirmed set points re-sent every 60 s | Lakitha's pipeline; the 5-min unconfirmed abort still applies |
-| Systemd watchdog, `OnFailure=` emergency stop, `--resume` from an events log | **Kept** watchdog; `ExecStopPost` park hook for `OnFailure=`; `--resume` from the state file; no `Restart=on-failure` | Must-fix 5 |
+| Systemd watchdog, `Restart=on-failure` with `--resume`, `OnFailure=` emergency stop | **Kept** (`OnFailure=` runs `parkChamberV8.py`, which stops only when the state says the chamber was not parked) | Must-fix 5 |
 | Influx / JSONL feeds, notifications, `--simulate`, chained cycles | **Dropped** | Not needed for a supervised weekend run |
 | Gate G0 start checks | **Dropped** (operator checklist below; `--t640-check`) | Need Influx, NTP and T640 registers |
 | Events JSON-lines file | **Replaced** by `BTL433ESC001RTNV8` plus the existing streams | Lakitha's data pipeline |
@@ -403,11 +421,11 @@ python3 -m unittest discover -s tests -v
 | `runRoutineV8.py` | New: the v8 routine | The deliverable |
 | `publishV8.py` | New (must-fix 4): publishes the outbox to MQTT from its own process | No network I/O in the control loop |
 | `parkChamberV8.py` | New (must-fix 5): humidity OFF and STOP after an end the routine could not handle | SIGKILL, out-of-memory, crash, power loss |
-| `v8/systemd/*.service` | New (must-fixes 4, 5): the run unit with the park hook, park at boot, the publisher | Must-fixes 4, 5 |
+| `v8/systemd/*.service` | New (must-fixes 4, 5): the run unit (watchdog, restart with `--resume`, `OnFailure=`), the park unit, park at boot, the publisher | Must-fixes 4, 5 |
 | `v8/.gitignore` | New: `state/` | The state file is runtime data |
 | `v8/schedule.tsv`, `v8/README.md`, `v8/.gitattributes` | New: verbatim schedule copy, its provenance and sha256, kept byte for byte | One source of truth |
 | `benchTestV8.py` | New: operator-present bench test of humidity ON/OFF and purge ON/OFF, with a cable-pull mode; MQTT through the outbox | Host duty 10 before the first run |
-| `tests/` | New: hermetic tests (96) | Section 7 of the task and the must-fix review |
+| `tests/` | New: hermetic tests (105) | Section 7 of the task and the must-fix review |
 | `mintsXU4/especChamber/chamber.py` | Added `set_humidity_enabled` (CHNG 13), `set_dry_air_purge` (CHNG 14), their two `change_mapping` labels, and the optional `request_timeout` passed to the two `requests` calls | The v8 routine needs humidity OFF, the purge and a timeout; old callers are unchanged (`None` = no timeout) |
 | `status.sh` | Also reports `runRoutineV8.py`, `publishV8.py` and the state file | `pgrep -f 'runRoutine.py'` does not match them |
 | `README.md` | Short "v8 routine" section | Points here |
@@ -449,6 +467,7 @@ was re-checked unchanged at `c082131`, and the blocks copied on 2026-10-22 cite 
 | `runRoutineV8.py` | `parse_precheck` | Dr. Lary (simplified: a dict, IPS items only noted) | `schedule.py:311-351` at `c082131` |
 | `runRoutineV8.py` | `RH_RATE_MAX`, `ROUNDING_MIN`, `transition_min` | Dr. Lary | `cycle.py:81-83, 329-346` at `c082131` |
 | `runRoutineV8.py` | `precheck_tick`, `precheck_end` | Dr. Lary (simplified: no IPS items) | `cycle.py:719-773` at `c082131` |
+| `runRoutineV8.py` | `soak_rules` (humid-soak RH shortfall, purge-ON RH excess) and their numbers | Dr. Lary (simplified: the flag is logged, not notified) | `cycle.py:685-702`, `schedule.py:284-288` at `c082131` |
 | `runRoutineV8.py` | `sd_notify`, the READY / WATCHDOG pings | Dr. Lary | `cycle.py:274-287, 586, 802, 1046` at `c082131` |
 | `runRoutineV8.py` | `apply` | Dr. Lary (simplified) | `cycle.py:545-570` |
 | `runRoutineV8.py` | `check_rules`, `hold` | Dr. Lary (simplified; per-rule timers by Claude) | `cycle.py:603-609, 615-650, 653-684` |
@@ -505,13 +524,15 @@ the run.
    the routine tries humidity OFF and STOP and exits. **With the cable out these commands cannot arrive: stop the
    chamber at the panel.**
 
-**Park-hook check** (systemd installed, chamber at lab conditions):
+**Restart and park check** (systemd installed, chamber at lab conditions):
 
 1. `sudo systemctl start runRoutineV8` with `V8_ARGS=--skip-precycle --start-point 1` in `v8/state/run.env`.
 2. Once point 1 holds, `sudo systemctl kill -s SIGKILL runRoutineV8`.
-3. `journalctl -u runRoutineV8` must show `parkChamberV8 … PARKING` and "Chamber parked"; the chamber reads standby
-   with humidity OFF; `v8/state/state.json` says `died, parked`.
-4. `python3 runRoutineV8.py --resume` would now start at point 1 (do not run it unless a run is wanted).
+3. Within about 15 s `journalctl -fu runRoutineV8` must show the restart and "Resuming at point 1"; the chamber stays
+   in CONSTANT.
+4. While the restarted run goes on, `sudo systemctl start v8-park`: `journalctl -u v8-park` must say "nothing to do:
+   the routine is still running" (the park unit never acts under a live run).
+5. `sudo systemctl stop runRoutineV8` (humidity OFF, then STOP; no restart).
 
 ---
 
@@ -522,11 +543,13 @@ Before the start:
 - [ ] Water tank filled (distilled water) and pressurised (18 psi), pump switched on.
 - [ ] Dry-air purge: air supply on, purge unit plugged in.
 - [ ] T640 running; `python3 runRoutineV8.py --t640-check` gives three readings.
-- [ ] `publishV8.service` and `v8-park-on-boot.service` enabled (`systemctl status publishV8 v8-park-on-boot`).
+- [ ] `v8-park.service` installed; `publishV8.service` and `v8-park-on-boot.service` enabled
+      (`systemctl status publishV8 v8-park-on-boot`).
 - [ ] `python3 runRoutineV8.py --plan` reviewed: points, total, "at or below the 23 C tube cap".
-- [ ] Bench test and park-hook check passed (first v8 run only).
+- [ ] Bench test and restart check passed (first v8 run only).
 - [ ] Aerosol feed on **HEPA bypass** for pre1 and pre2.
-- [ ] Start with `sudo systemctl start runRoutineV8` (or inside `screen` / `tmux`; then a SIGKILL is not parked).
+- [ ] Start with `sudo systemctl start runRoutineV8` (inside `screen` / `tmux` instead, a crash is neither restarted
+      nor parked).
 
 During the run:
 
@@ -569,12 +592,6 @@ After the stop row:
 3. The `DAP` issue (finding 1): new suffix for the time signal, or a pipeline-side filter?
 4. The tracked `credentials.yml` (finding 2).
 5. The new stream name `BTL433ESC001RTNV8` (now with a `detail` field): acceptable, or another name?
-6. The humid-soak RH-shortfall abort (RH PV < set − 10 % for 15 min at a within-chart humid soak, T ≥ 15 °C) and the
-   purge-ON RH-excess flag need only chamber data and could be copied from `cycle.py:689-702`. Add them for the
-   weekend? The shortfall abort would end the night if the water or steam supply runs short.
-7. The runner restarts itself (`Restart=on-failure`, `--resume`) and continues an open SAFE after a restart. Here a
-   person starts every run, a start after an abort needs `--clear-abort`, and the park hook stops a chamber that was
-   left in SAFE. Keep it that way for the supervised weekend run?
-8. `feat/chamber-offline-7.17` (the runner without Influx) is not on `origin`. When it lands, should this routine read
+6. `feat/chamber-offline-7.17` (the runner without Influx) is not on `origin`. When it lands, should this routine read
    the same local feed instead of its own Modbus client?
 <!-- END ADDED BY CLAUDE -->
