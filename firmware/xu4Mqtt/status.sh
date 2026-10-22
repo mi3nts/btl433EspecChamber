@@ -9,4 +9,10 @@ echo $(pgrep -f 'runRoutine.py')
 echo "v8 routine (runRoutineV8.py)"
 echo $(pgrep -f 'runRoutineV8.py')
 # END ADDED BY CLAUDE
+# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - the MQTT publisher and the routine's last state
+echo "v8 publisher (publishV8.py)"
+echo $(pgrep -f 'publishV8.py')
+echo "v8 state (v8/state/state.json)"
+cat v8/state/state.json 2>/dev/null || echo "no v8 run recorded"
+# END ADDED BY CLAUDE
 

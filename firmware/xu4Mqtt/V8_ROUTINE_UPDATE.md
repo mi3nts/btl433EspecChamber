@@ -1,11 +1,11 @@
-<!-- ADDED BY CLAUDE (v8 routine update, 2026-10-20) -->
+<!-- ADDED BY CLAUDE (v8 routine update, 2026-10-20; must-fix review, 2026-10-22) -->
 # v8 Routine Update — What Changed and Why
 
 This update adds [`runRoutineV8.py`](runRoutineV8.py), a routine that runs the MINTS-AI calibration programme **v8**
 ([`v8/schedule.tsv`](v8/schedule.tsv)) point by point. It is a simplified copy of Dr. Lary's chamber runner
-(Calibration `tools/run_chamber_cycle.py` + `calib/chamber/`, about 2,900 lines). The runner needs live T640, IPS and
-Influx data. This routine keeps the parts that need only the chamber, and it logs exactly as Lakitha's routines do,
-so the data reaches Influx as the same `BTL433ESC001*` streams that the calibration pipeline already reads.
+(Calibration `tools/run_chamber_cycle.py` + `calib/chamber/`, about 2,900 lines). It reads the chamber over its Web
+Controller and the T640 over Modbus/TCP, both on the lab LAN (no Influx), and it logs exactly as Lakitha's routines
+do, so the data reaches Influx as the same `BTL433ESC001*` streams that the calibration pipeline already reads.
 
 The request (Rittik Patra, 2026-10-20): start from the runner, copy it, simplify it as much as possible, and use
 Lakitha's `runRoutineCustom.py` as the reference for simplicity and for the data pipeline. For the weekend run, the
@@ -14,6 +14,18 @@ points must be visited in the right order, and condensation must be avoided.
 Calibration sources: commit `d4db474` (HEAD on 2026-10-20). `schedule.tsv` was last changed in `d809739`; the sha256
 of its bytes is `9f59b5fbbedd238b…` ([v8/README.md](v8/README.md)).
 
+### Must-fix review (2026-10-22)
+
+The review of the first version found five must-fix items. All five are fixed on this branch:
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Holds started when T arrived, so the RH settling of the schedule's window was cut from the holds (pre2, pre3, 11, 22, 23, 24, 26, 30: 99 min of scoreable time) | The transition lasts the TSV window D; the RH change is spread over D; the hold starts at its end ([How a point runs](#how-a-point-runs)) |
+| 2 | No T640 protection: only the chamber dew-point rules, which cannot fire below the 24 °C hold threshold | The T640 is read locally over Modbus/TCP every 10 s; the sample-RH HOLD / ABORT, dew point against the box T, fault bit and stale-T640 rules are back ([Condensation guard](#condensation-guard)) |
+| 3 | A failed pre-cycle check went to STOP (Ctrl-C), leaving the chamber humid after pre2 | Pass / fail is asked at the end of each pre hold; a fail or no answer runs the guarded SAFE; the answer is logged ([Pre-cycle checks](#pre-cycle-checks)) |
+| 4 | MQTT to the UTD broker inside the 10-s control loop (blocking connect, up to 5 s per record) | The control process writes CSV and a local outbox only; `publishV8.py` publishes from its own process ([Logging](#logging)) |
+| 5 | Nothing parked the chamber on SIGHUP, SIGKILL, out-of-memory or power loss, and a restart had no state | SIGHUP trapped; atomic state file at every event; systemd unit with an `ExecStopPost` park hook and a park-at-boot unit ([State, restarts and the park hook](#state-restarts-and-the-park-hook)) |
+
 ---
 
 ## At a Glance
@@ -21,78 +33,126 @@ of its bytes is `9f59b5fbbedd238b…` ([v8/README.md](v8/README.md)).
 | Area | Lakitha's `runRoutineCustom.py` | Dr. Lary's runner | `runRoutineV8.py` (this update) |
 |---|---|---|---|
 | Points | Every T × RH grid combination | `schedule.tsv` v8 in file order | `v8/schedule.tsv` (verbatim copy, sha logged) in file order |
-| Temperature change | Set point jumps to the target | Ramped at the row's rate, every 10 s, over the schedule's window D | Ramped at the row's rate, new set point every 60 s, until it reaches the target |
-| Humidity on ramps | Always ON when reachable | Dew-point trajectory; dry warm-ups; resume rule | Same (copied) |
+| Temperature change | Set point jumps to the target | Ramped at the row's rate, every 10 s, over the schedule's window D | Ramped at the row's rate, new set point every 60 s; the transition lasts the window D |
+| Humidity on ramps | Always ON when reachable | Dew-point trajectory; RH-only change spread over D; dry warm-ups; resume rule | Same, with the dew point spread over D (never ahead of T) |
 | Humidity OFF | Not possible | Yes | Yes (`set_humidity_enabled`) |
 | Dry-air purge | Not controlled | Per row | Per row (`set_dry_air_purge`) |
-| Soak | ±2 °C / ±2 %RH, then 120 s | Timed or guaranteed (band), 60-min give-up | Same (copied) |
-| Dew-point cap | None | Chamber PV, T640 sample RH, T640 box T, tube heater | Chamber-PV dew point only (HOLD and ABORT), plus a cap on every RH set point sent |
-| Abort rules | None | Abort list and excursion ABORT (chamber, T640, IPS) | The 4 chamber-only rules |
-| Failure handling | Chamber stopped only after a normal end | SAFE dry-out, emergency STOP, watchdog | SAFE dry-out (fixed 60 min), emergency STOP |
-| Logging | `BTL433ESC001*` via `sensorFinisher` | JSON-lines events file (writes no `BTL433ESC001*` stream) | `BTL433ESC001*` via `sensorFinisher`, plus `BTL433ESC001RTNV8` events |
-| Size | 53 lines + `Chamber.Routine` | ~2,900 lines | 823 lines: 622 of code, 100 of comments and docstrings, 101 blank |
+| Soak | ±2 °C / ±2 %RH, then 120 s | Timed or guaranteed (band), 60-min give-up, from the end of D | Same (copied) |
+| Dew-point cap | None | Chamber PV, T640 sample RH, T640 box T, tube heater | Chamber PV, T640 sample RH, T640 box T, T640 fault bit (no tube heater, no WIMDA), plus a cap on every RH set point sent |
+| Abort rules | None | Abort list and excursion ABORT (chamber, T640, IPS) | Chamber, T640 and stale-T640 rules; pre-cycle checks answered by the operator |
+| Failure handling | Chamber stopped only after a normal end | SAFE dry-out, emergency STOP, watchdog | SAFE dry-out (fixed 60 min), emergency STOP, park hook after any end of the process |
+| Logging | `BTL433ESC001*` via `sensorFinisher` (CSV + MQTT inline) | JSON-lines events file (writes no `BTL433ESC001*` stream) | `BTL433ESC001*` via `sensorFinisher` (CSV inline, MQTT from `publishV8.py`), plus `BTL433ESC001RTNV8` events |
+| Size | 53 lines + `Chamber.Routine` | ~2,900 lines | `runRoutineV8.py` 1,407 lines (1,046 code, 195 comments and docstrings, 165 blank), `publishV8.py` 135, `parkChamberV8.py` 118 |
 
 ---
 
 ## How a Point Runs
 
-The summary is read and logged every 10 s (`get_and_write_summary(expanded=True)`) in every phase.
+The summary is read and logged every 10 s (`get_and_write_summary(expanded=True)`) in every phase, and every rule
+below is checked at every tick, including while the routine waits for the operator.
 
-1. **Transition.** The T set point ramps from where the chamber is to the row's `T_set_C` at the row's
-   `ramp_rate_C_per_min`. A new set point is sent every 60 s. The first point of a run ramps at the SAFE rates
-   (1.0 °C/min up, 0.6 °C/min down), as the runner does. From the first tick:
-   - the purge follows the row's `dry_air_purge`;
-   - humidity follows the row (see [Condensation guard](#condensation-guard)).
-2. **Arrival.** The ramp has reached `T_set_C` and the summary reads it back. The routine writes `RTNCHG` change 10
-   (*Routine Holding*) with `iteration` = the point's position in this run, and prints the row's `check_or_rule` text.
-   For pre1–pre3 the text is printed as an **operator checklist**: those checks need T640 / IPS data and are not
-   automated here.
+1. **Transition (window D).** D is the TSV's `expected_arrival_min_after_start` of the row minus the previous row's
+   end (its arrival plus its hold), and never shorter than the T ramp. Within D:
+   - the T set point ramps from where the chamber is to the row's `T_set_C` at `ramp_rate_C_per_min` (a new set point
+     every 60 s; the first point of a run ramps at the SAFE rates, 1.0 °C/min up, 0.6 °C/min down);
+   - the humidity change is spread over D (see [Condensation guard](#condensation-guard));
+   - the purge follows the row's `dry_air_purge` from the first tick.
+
+   When T reaches its set point the routine logs `RTNV8` event 13 (*Temperature Reached*) and keeps going until the
+   end of D.
+2. **Hold start ("arrival").** At the end of D, with the T set point read back: `RTNCHG` change 10 (*Routine Holding*)
+   with `iteration` = the point's position in this run, and `RTNV8` event 2. The row's `check_or_rule` is printed;
+   for pre1–pre3 it is the operator checklist.
 3. **Soak.**
-   - Timed rows (`none(timed)`) hold `hold_min_at_setpoint` from arrival.
+   - Timed rows (`none(timed)`) hold `hold_min_at_setpoint` from the hold start.
    - Guaranteed rows count hold time only while |T_pv − T_set| ≤ the row's band. If the band has not held long
      enough 60 min after the hold time, the soak is given up: `RTNCHG` change 11 and a printed warning.
-4. **Aerosol feed.** When a row's `aerosol_feed` differs from the previous row's (only pre2 → pre3 in v8), the routine
-   prints an operator message and waits for Enter (unless `--no-operator-wait`). It never waits anywhere else.
+4. **Pre-cycle answer** (pre1–pre3 only): see [Pre-cycle checks](#pre-cycle-checks). The next point does not start
+   before the answer.
+5. **Aerosol feed.** When a row's `aerosol_feed` differs from the previous row's (only pre2 → pre3 in v8), the routine
+   asks the operator to set it and answer `go`, while it keeps the previous point's set points and every rule
+   running. No answer in 30 min = SAFE. `--no-operator-wait` only prints the message.
 
 After the last point (bake, or 30 with `--skip-bake`) the **stop row** runs: humidity OFF, STOP, read back
 `standby`, and a printed "open the door" message.
 
-**Timing.** `--plan` prints the exact plan: **23.2 h** including the pre-cycle and the bake, against 24.8 h for the
-runner. The difference comes from the runner's transition window D. The schedule gives each transition a window that
-also covers RH changes (for example 13 min for 20 °C / 35 % → 20 °C / 15 % at point 11). Here the hold starts when the
-temperature has arrived, so after an RH-only change the first minutes of the hold include the RH settling. The point
-order, temperatures and RH set points are identical to the runner's `--plan` (checked on 2026-10-20, 34 points).
+**Timing.** `--plan` prints the plan with a `ramp` and a `trans` (D) column: **24.87 h** including the pre-cycle and
+the bake. That is the TSV's 1,490 min plus 2 min where the arrival times, rounded to whole minutes, are a few seconds
+shorter than the ramp (points 9, 13, 15, 17–20, 27). The first version ran 23.2 h because it started each hold when T
+arrived; the 99 min it saved were all taken from the holds.
 
 ---
 
 ## Condensation Guard
 
 Water condenses when moist air meets a surface colder than its dew point. The surfaces at risk are the sensors and
-the sample tube: they lag the air, especially when warming into humid air or cooling while humid. Everything below
-needs only the chamber's T and RH and the Magnus formulas copied from Calibration `calib/chamber/psychro.py`.
+the sample tube: they lag the air, especially when warming into humid air or cooling while humid. The guard uses the
+chamber's T and RH, the T640's sample RH, box temperature, ASC heater duty and fault bit, and the Magnus formulas
+copied from Calibration `calib/chamber/psychro.py`.
 
-1. **Dew-point trajectory on humid ramps.** When `ramp_humidity_system` is ON and T changes, every 60-s update sets
-   RH = `dp_trajectory_rh(T_now, T_from, T_target, Td_from, Td_target)`. The dew point moves linearly with the
-   temperature progress, so it is never ahead of the air temperature.
-   - `Td_from` is the dew point of the RH set point in force, or of the chamber PV if humidity was off.
-   - `Td_target` is the row's `dew_point_C`.
-2. **Dry warm-ups.** When `ramp_humidity_system` is OFF, humidity stays OFF for the whole ramp. It switches ON with
-   the row's RH `humidify_after_min` after arrival, so the units warm above the coming dew point first (points 6, 7,
-   16, 28, 30). Rows with `humidity_system` OFF (2, 3, 27) stay OFF throughout.
-3. **First step / resume rule** (host duty 7). On the first point of a run, including `--start-point`:
-   - a rise of ≥ 5 °C from a chamber RH PV ≥ 40 % ramps dry and adds humidity 10 min after arrival (the schedule's
-     longest `humidify_after_min`);
-   - a pull-down below 0 °C to a humid target ramps dry and adds humidity at arrival.
-4. **Dew-point cap (23 °C, the `excursion` row).**
-   - No RH set point is ever sent whose dew point at the T set point being sent is above 23 °C.
-   - `--plan` checks every point and the routine refuses to start if one is above it.
-   - Every 10 s the dew point of the chamber PV is computed. If it stays above 24 °C (cap + 1) for 2 min, the RH
-     set point steps down to the RH whose dew point is 22 °C (cap − 1) at the current T set point. It stays there for
-     the rest of the point and is never raised again within the point. The event is logged (`RTNV8` event 4).
-   - If the chamber-PV dew point stays above 26 °C (cap + 3) for 5 min anyway, the run aborts to SAFE (the
-     chamber-PV part of the excursion ABORT).
-5. **Order.** The points run exactly in TSV order. The schedule puts the cold points while the chamber is dry and the
+1. **Dew point spread over the window D.** When `ramp_humidity_system` is ON, every 60-s update sets the RH whose
+   dew point is `Td_from + (Td_target − Td_from) × f` at the current T set point (`window_fraction`):
+   - an RH-only change (pre-cycle, 11, 23, 24, 26, 29, …): f = elapsed / D;
+   - T and RH change together: a rising dew point takes the slower of elapsed / D and the T progress, so it is never
+     ahead of the old dew-point trajectory; a falling dew point takes the faster, so it never lags it.
+   - `Td_from` is the dew point of the RH set point in force, or of the chamber PV if humidity was off; `Td_target`
+     is the row's `dew_point_C`. At the end of D the RH set point is the row's RH exactly.
+2. **Dry warm-ups.** When `ramp_humidity_system` is OFF, humidity stays OFF during the ramp and switches ON with the
+   row's RH `humidify_after_min` after **T reached its set point** (event 13), so the RH settling stays inside D
+   (points 6, 7, 16, 28, 30; at 30, D is 29 min for a 12-min ramp). Rows with `humidity_system` OFF (2, 3, 27) stay
+   OFF throughout.
+3. **First step / resume rule** (host duty 7). On the first point of a run, including `--start-point` and `--resume`:
+   - a rise of ≥ 5 °C from a chamber RH PV ≥ 40 % ramps dry and adds humidity 10 min after T arrives (the
+     schedule's longest `humidify_after_min`);
+   - a pull-down below 0 °C to a humid target ramps dry and adds humidity when T arrives.
+4. **Dew-point cap (23 °C) and the excursion rule** (the `excursion` row; every number is read from its text):
+   - No RH set point is ever sent whose dew point at the T set point being sent is above 23 °C. `--plan` checks every
+     point and the routine refuses to start if one is above it.
+   - **HOLD** (step the RH set point to the RH whose dew point is 22 °C at the current T set point, for the rest of
+     the point; never raised again within the point; `RTNV8` event 4 with the rule in `detail`) when:
+     the chamber-PV dew point > 24 °C for 2 min; or the T640 sample RH > 45 % for 5 min while the ASC heater duty is
+     ≥ 95 %; or the chamber-PV dew point > T640 box T − 3 °C.
+   - **ABORT to SAFE** when: the T640 sample RH > 60 % for 10 min, > 75 % for 2 min or > 60 % for 5 min; the
+     chamber-PV dew point > 26 °C for 5 min; the chamber-PV dew point ≥ T640 box T; or the T640 fault bit
+     (`WRNS.systemFaultWarning`) is set for 5 min while the sample RH is > 45 %.
+   - Not checked: the tube-heater part ("when logged": it is not) and the WIMDA dew point (not read here).
+5. **The T640** is read by its own thread every 10 s over Modbus/TCP (`--t640-host`, default `192.168.20.125`, the
+   address of `teledyneSensing/firmware/xu4Mqtt/t640Reader.py`; input registers 8 PM2.5, 36 sample RH, 38 box T, 60
+   ASC heater duty; discrete input 7 system fault), standard library only, one short connection per read with a 3-s
+   timeout. The control loop takes its latest reading and never waits for it.
+   - **Stale T640** (the `abort` row): no good reading for 5 min → ABORT to SAFE.
+   - No T640 reading within 60 s of the start → the run is refused before anything is sent.
+   - `--no-t640` turns the T640 rules off. A person must then watch the T640 sample RH at the points whose dew point
+     is ≥ 15 °C (pre2 and 12–21). At each of them the routine prints the written threshold: SAFE now
+     (`--operator safe`) if the sample RH is > 75 % for 2 min or > 60 % for 5 min, if the box T is at or below the
+     chamber dew point, or if a T640 fault shows with sample RH > 45 %.
+6. **Order.** The points run exactly in TSV order. The schedule puts the cold points while the chamber is dry and the
    fog last. Skipped points (by `--start-point`, `--skip-precycle`, `--skip-bake`) are printed.
+
+---
+
+## Pre-cycle Checks
+
+pre1 (zero / LOD blank), pre2 (humid blank) and pre3 (loading check) need T640 and IPS judgement, so the operator
+makes them. At the hold start the routine prints the row's checklist. At the end of the hold it asks:
+
+```text
+PRE-CYCLE CHECK pre2: humid blank: T640 PM2.5 <= 0.3 ug/m3 (last 5 min); ...
+Answer here (pass / fail), or from any shell in firmware/xu4Mqtt:
+    python3 runRoutineV8.py --operator pass
+    python3 runRoutineV8.py --operator fail
+No answer within 30 min = SAFE. Any time: --operator safe.
+```
+
+- While it waits, the chamber holds the point and every rule keeps running.
+- `pass` → `RTNV8` event 14, next point. pre3's answer gates point 1: the cycle does not start before the loading
+  check passes.
+- `fail` → event 15, then ABORT → the guarded SAFE routine (dry-out, then STOP), as protocol section 4 and the
+  `abort` row require. Ctrl-C is no longer the way to fail a check: it skips the dry-out.
+- No answer in 30 min → event 16 and SAFE.
+- The answer can be typed in the routine's terminal (when it has one) or sent with `--operator`, which writes
+  `v8/state/operator.json`; the routine reads it within 10 s. Answers older than the question are dropped.
+- The provisional pre2 sample-RH check (log only) is not a reason to answer `fail`.
 
 ---
 
@@ -100,14 +160,19 @@ needs only the chamber's T and RH and the Magnus formulas copied from Calibratio
 
 **However the script ends, the chamber is left safe.**
 
-| How it ends | What the routine does |
+| How it ends | What happens |
 |---|---|
 | Normal end | Stop row: humidity OFF, STOP, read back `standby`, "open the door" |
-| Ctrl-C or SIGTERM | Humidity OFF, then STOP, at once (each tried twice) |
-| Abort rule, or an unexpected error once in CONSTANT | Simplified SAFE (below) |
+| Ctrl-C, SIGTERM (`systemctl stop`) or SIGHUP (closed terminal / dropped SSH without `screen`) | Humidity OFF, then STOP, at once (each tried twice) |
+| Abort rule, failed or unanswered pre-cycle check, `--operator safe`, or an unexpected error once in CONSTANT | Simplified SAFE (below) |
 | Error before CONSTANT | Humidity OFF, then STOP |
-| The chamber leaves CONSTANT by itself (alarm, water out, panel STOP) | Nothing more is sent: log, print, exit. The interlock wins. |
-| The chamber is in program mode at start | Refused, nothing is sent |
+| SIGKILL, out-of-memory kill, interpreter crash | `parkChamberV8.py` (systemd `ExecStopPost`): humidity OFF, then STOP over the LAN |
+| Power loss or hard reset of the host | At the next boot, `v8-park-on-boot.service`: humidity OFF, then STOP |
+| The chamber leaves CONSTANT by itself (alarm, water out, panel STOP) | Nothing more is sent: log, print, exit. The interlock wins (the park hook leaves it alone too). |
+| The chamber is in program mode at start, or no T640 reading | Refused, nothing is sent |
+
+The park hook needs the host and the LAN. If the host stays down, nothing on the host can park the chamber; the
+chamber then holds its last set point until someone stops it at the panel.
 
 **Simplified SAFE** (from the `safe` row):
 
@@ -119,40 +184,74 @@ needs only the chamber's T and RH and the Magnus formulas copied from Calibratio
 If the chamber cannot be read, or a command is not confirmed, for 5 min during SAFE, the routine sends humidity OFF
 and STOP and exits.
 
-**Abort rules kept** (chamber data only, from the `abort` row):
+**Abort rules** (from the `abort` and `excursion` rows):
 
+- a pre-cycle check failed or not answered (operator);
 - no valid chamber summary for 5 min;
 - a set point not confirmed by the summary read-back for 5 min (an unconfirmed set point is re-sent at every 60-s
   update);
 - the pull-down to −18 °C not reached within 90 min at the −20 °C point;
-- the chamber-PV dew point above 26 °C (cap + 3 °C) for 5 min (from the `excursion` row).
+- T640 data stale for 5 min;
+- the excursion ABORT parts listed in the [Condensation guard](#condensation-guard).
 
 **Read-back.** After each command the routine reads the summary again and compares the set value or state with what
-it sent. `Chamber` now has `request_timeout`; the routine uses 10 s, so a hung request cannot freeze the run.
+it sent. `Chamber` has `request_timeout`; the routine uses 10 s, so a hung request cannot freeze the run.
+
+### State, Restarts and the Park Hook
+
+`v8/state/state.json` (git-ignored) is rewritten atomically (temporary file, `fsync`, rename) at every `RTNV8` event,
+before the event is logged: run id, pid, host, boot id, schedule sha, point, position, phase, last event and its
+detail, outcome (empty while the run is live), whether the routine confirmed its own STOP, and whether it must keep
+its hands off.
+
+A new start reads it first:
+
+| Last state | `python3 runRoutineV8.py` | `--resume` |
+|---|---|---|
+| A live run (same host and boot, pid alive) | Refused | Refused |
+| Aborted to SAFE (or died during SAFE), `safe_failed`, `left_constant`, `stop_unconfirmed`, `error, …` | Refused until `--clear-abort "<what was checked>"` | Refused |
+| `complete` | Starts | Nothing to resume |
+| `interrupted`, `refused`, died outside SAFE (parked by the hook) | Starts | Starts at the point the state names (same schedule sha only) |
+
+`--clear-abort` keeps the previous state and the reason given inside the new run's state.
+
+`parkChamberV8.py` reads the same file. It parks the chamber (humidity OFF, then STOP, each tried twice, read back
+`standby`) only when the run has no outcome or ended without a confirmed STOP, and never while the run is alive,
+after the chamber left CONSTANT by itself, or after a refused start. It records `died, parked` (or `died, park NOT
+confirmed`), the systemd `SERVICE_RESULT` / `EXIT_STATUS`, and the previous outcome.
 
 ---
 
 ## Logging
 
-All records go through `mSR.sensorFinisher` (CSV + MQTT), like every other stream.
+All records go through `mSR.sensorFinisher`, like every other stream. In the routine's process MQTT is switched off
+(`mintsSensorReader.mqttOn = False`, read at every call) and each record is also appended to a local outbox,
+`<dataFolder>/<mac>/v8outbox/YYYY-MM-DD.jsonl` (one JSON line per record, which keeps every value's type).
+`publishV8.py` runs as its own process, reads the outbox and publishes each record exactly as `sensorFinisher` would
+have (topic `<mac>/<sensorName>`, payload `json.dumps(record)`, through `mintsLatest`'s connection). If the broker is
+down it retries from the saved offset; the control loop never waits on the network beyond the chamber and the T640.
+Published outbox files older than 14 days are deleted; the CSV files stay the record.
 
 | Stream | When | Fields |
 |---|---|---|
 | `BTL433ESC001STATUS`, `TMPRT`, `HMDTY`, `DAP`, `PRGRM` | Every 10 s (expanded summary) | Unchanged (`Chamber.write_*`) |
 | `BTL433ESC001CHNG` | Every command | Unchanged; new change IDs 13 *Humidity System Set*, 14 *Dry Air Purge Set* |
-| `BTL433ESC001RTNCHG` | 1 *Routine Started* (iteration 0) at the start; 10 *Routine Holding* at each arrival (iteration 1…N); 11 at a guaranteed-soak give-up; 2 *Routine Ended* at the end | `dateTime`, `changeID`, `changeLabel`, `iteration`, `success` (as `run_routine`) |
+| `BTL433ESC001RTNCHG` | 1 *Routine Started* (iteration 0) at the start; 10 *Routine Holding* at each hold start (iteration 1…N); 11 at a guaranteed-soak give-up; 2 *Routine Ended* at the end | `dateTime`, `changeID`, `changeLabel`, `iteration`, `success` (as `run_routine`) |
 | `BTL433ESC001RTNPRGV2` | Once per point, at its transition start | As `run_routine`; humidity OFF → `entryHumidity` −100, `entryHC` 0 |
-| `BTL433ESC001RTNV8` (new) | Events only | `dateTime`, `eventID`, `eventLabel`, `point`, `tag`, `temperatureSet`, `humiditySet` (−100 = OFF), `humiditySystem`, `dryAirPurge`, `aerosolFeed`, `holdMin`, `rampRate` (−1 = none), `gsBand` (−1 = timed), `scheduleSha` |
+| `BTL433ESC001RTNV8` (new) | Events only | `dateTime`, `eventID`, `eventLabel`, `point`, `tag`, `temperatureSet`, `humiditySet` (−100 = OFF), `humiditySystem`, `dryAirPurge`, `aerosolFeed`, `holdMin`, `rampRate` (−1 = none), `gsBand` (−1 = timed), `scheduleSha`, `detail` |
 
-`RTNV8` events: 0 run started, 1 transition started, 2 arrived, 3 humidity enabled after a dry warm-up, 4 dew-point
-hold, 5 guaranteed soak given up, 6 soak ended, 7 aborted, 8 SAFE started, 9 SAFE ended, 10 run ended, 11 chamber left
-CONSTANT, 12 emergency stop. The `BTL433ESC001` prefix keeps the stream in the pipeline's `REF_MEAS_PREFIXES`.
+`RTNV8` events: 0 run started, 1 transition started, 2 arrived (hold start, end of D), 3 humidity enabled after a dry
+warm-up, 4 dew-point hold, 5 guaranteed soak given up, 6 soak ended, 7 aborted, 8 SAFE started, 9 SAFE ended, 10 run
+ended, 11 chamber left CONSTANT, 12 emergency stop, 13 temperature reached (inside D), 14 / 15 / 16 pre-cycle check
+passed / failed / unanswered, 17 operator confirmed the feed change, 18 operator requested SAFE. `detail` holds the
+rule that fired, the answer or the outcome. The `BTL433ESC001` prefix keeps the stream in the pipeline's
+`REF_MEAS_PREFIXES`.
 
-The `iteration` restarts at 1 for every new run, including a `--start-point` restart (`calib/fit/diagnostics.py`
-reads it as the step counter).
+The `iteration` restarts at 1 for every new run, including a `--start-point` / `--resume` restart
+(`calib/fit/diagnostics.py` reads it as the step counter).
 
-The summary is now expanded on every read. `run_routine` expanded it only at start-up, so `DAP.enabled` (the purge
-column) was barely refreshed.
+The summary is expanded on every read. `run_routine` expanded it only at start-up, so `DAP.enabled` (the purge column)
+was barely refreshed.
 
 ---
 
@@ -165,22 +264,57 @@ python3 runRoutineV8.py --plan
 ```
 
 ```bash
+python3 runRoutineV8.py --t640-check
+```
+
+```bash
 python3 runRoutineV8.py
 ```
 
 | Option | Meaning |
 |---|---|
-| `--plan` | Print the table of points (ramp and hold minutes, planned start / arrival / end, the clock time if started now, the total) and the dew point of every RH set point. Contacts nothing. Refuses (exit 2) if a dew point is above the cap. |
-| `--start-point <name>` | Resume at that point (`pre1`–`pre3`, `1`–`30`, `bake`). |
+| `--plan` | Print the table of points (ramp, window D, hold minutes, planned start / hold start / end, the clock time if started now, the total) and the dew point of every RH set point. Contacts nothing. Refuses (exit 2) if a dew point is above the cap. |
+| `--t640-check` | Read the T640 three times, 10 s apart, and print sample RH, box T, ASC heater duty, fault bit and PM2.5. Contacts nothing else. |
+| `--operator pass\|fail\|go\|safe` | Answer the running routine: a pre-cycle check, the feed change, or SAFE now. |
+| `--resume` | Resume at the point `v8/state/state.json` names (after `interrupted`, or a death outside SAFE). |
+| `--clear-abort "<what was checked>"` | Allow a start after an aborted / SAFE / unconfirmed run. |
+| `--start-point <name>` | Start at that point (`pre1`–`pre3`, `1`–`30`, `bake`). |
 | `--skip-precycle` | Skip pre1–pre3. |
 | `--skip-bake` | Stop after point 30. |
+| `--t640-host`, `--t640-port` | T640 Modbus/TCP address (default `192.168.20.125:502`). |
+| `--no-t640` | Do not read the T640 (its rules are off; a person watches it, see above). |
 | `--chamber-url` | Web Controller base URL (default `http://192.168.20.121`). |
-| `--no-operator-wait` | Do not wait for Enter at the aerosol-feed change. |
+| `--no-operator-wait` | Do not wait for the operator at the aerosol-feed change (the pre-cycle checks are still asked). |
+| `--state-dir` | Where `state.json` and `operator.json` live (default `v8/state`). |
 
-Exit code 0 when the run completed and the STOP was confirmed, 1 otherwise, 2 when refused by the cap check. The last
-line printed says how to resume (`--start-point <point>`).
+Exit code 0 when the run completed and the STOP was confirmed, 1 otherwise, 2 when refused by the cap check, 3 when
+refused by the state file. The last line printed says whether to `--resume` or to `--clear-abort`.
 
-Tests (hermetic: simulated chamber, fake clock, no network, no MQTT, `credentials.yml` never read):
+**Under systemd** (recommended for the weekend: SIGKILL / out-of-memory / crash are then parked too). Paths in the unit
+files assume `/home/teamlary/gitHubRepos/btl433EspecChamber` and user `teamlary`; edit them if the XU4 differs.
+
+```bash
+sudo cp v8/systemd/runRoutineV8.service v8/systemd/v8-park-on-boot.service v8/systemd/publishV8.service /etc/systemd/system/
+```
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now publishV8 && sudo systemctl enable v8-park-on-boot
+```
+
+```bash
+sudo systemctl start runRoutineV8
+```
+
+```bash
+journalctl -fu runRoutineV8
+```
+
+Options go in `v8/state/run.env` (for example `V8_ARGS=--resume`). Under systemd the routine has no terminal: answer
+with `python3 runRoutineV8.py --operator …`. `sudo systemctl stop runRoutineV8` is SIGTERM (humidity OFF, then STOP).
+`runRoutineV8.service` is never enabled at boot: a person always starts a run.
+
+Tests (hermetic: simulated chamber, fake clock, fake T640 or a Modbus server on 127.0.0.1, no MQTT, `credentials.yml`
+never read):
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -194,20 +328,23 @@ python3 -m unittest discover -s tests -v
 |---|---|---|
 | Points from `schedule.tsv` in order | **Kept** (verbatim copy, sha logged) | One source of truth; the order is physics |
 | Ramps at the row's rate; dew-point trajectory; dry warm-ups; resume rule | **Kept** | Condensation |
-| Dew-point cap / excursion HOLD | **Simplified**: chamber-PV dew point only | The T640 sample-RH / box-T / tube-heater parts need Influx |
-| Excursion ABORT | **Simplified**: chamber-PV Td > cap + 3 °C for 5 min only | The sample-RH, Td ≥ box T and fault-bit parts need the T640 from Influx |
+| Schedule-exact transition window D; RH change spread over D | **Kept** (must-fix 1) | The holds were sized for it |
+| T set point every 10-s tick | **Simplified**: every 60 s | Fewer commands; the summary is still read every 10 s |
+| Dew-point cap / excursion HOLD | **Kept** except the tube-heater part | Not logged here |
+| Excursion ABORT | **Kept** (chamber PV, T640 sample RH, box T, fault bit) | Must-fix 2 |
+| Td_ch = the higher of the chamber PV and the WIMDA dew point | **Simplified**: chamber PV only | WIMDA not read here |
 | Guaranteed soaks, 60-min give-up | **Kept** | Simple, and part of the protocol |
-| Schedule-exact transition window D | **Simplified**: ramp until T arrives | Lakitha-style; total 23.2 h instead of 24.8 h |
-| T set point every 10-s tick; RH-only change spread over D | **Simplified**: T every 60 s; RH-only change at once | The controller ramps RH itself; the air is already at T |
-| First-step RH-only rate limit (6 %/min) | **Dropped** | Same reason; only the first step of a run |
-| Pre-cycle checks pre1–pre3 | **Simplified**: timed holds plus a printed checklist | Need T640 / IPS data from Influx |
-| Abort list: T640 stale, humid-soak RH shortfall, IPS/T640 ratio; purge-excess flag | **Dropped** | Need Influx feeds (the RH shortfall could be chamber-only; see open questions) |
+| First-step RH-only rate limit (6 %/min) | **Simplified**: the RH-only change is spread over D | Same intent |
+| Pre-cycle checks pre1–pre3 | **Simplified**: the operator answers pass / fail; fail or no answer → SAFE | T640 PM / IPS judgement; must-fix 3 |
+| Abort list: T640 stale | **Kept** (must-fix 2) | |
+| Abort list: humid-soak RH shortfall, IPS/T640 ratio; purge-excess flag | **Dropped** | Need IPS / Influx feeds (the RH shortfall could be chamber-only; see open questions) |
 | Abort list: no reading, unconfirmed, pull-down | **Kept** | Chamber data only |
-| SAFE dry-out | **Simplified**: fixed 60 min, no T640 early end, no 90-min hard limit | Chamber data only |
+| SAFE dry-out | **Simplified**: fixed 60 min, no early end, no 90-min hard limit | The T640 early end could now be added (open questions) |
 | Chamber left CONSTANT → hands off | **Kept** | Interlock wins |
 | Command client with retries and back-off (`espec.py`) | **Simplified**: `Chamber` + one read-back; unconfirmed set points re-sent every 60 s | Lakitha's pipeline; the 5-min unconfirmed abort still applies |
-| Influx / JSONL feeds, notifications, systemd watchdog, `--resume` from an events log, `--simulate`, chained cycles | **Dropped** | Not needed for a supervised weekend run; `--start-point` covers restarts |
-| Gate G0 start checks | **Dropped** (operator checklist below) | Need Influx, NTP and T640 registers |
+| Systemd watchdog, `--resume` from an events log | **Simplified**: systemd unit with a park hook, `--resume` from the state file | Must-fix 5 |
+| Influx / JSONL feeds, notifications, `--simulate`, chained cycles | **Dropped** | Not needed for a supervised weekend run |
+| Gate G0 start checks | **Dropped** (operator checklist below; `--t640-check`) | Need Influx, NTP and T640 registers |
 | Events JSON-lines file | **Replaced** by `BTL433ESC001RTNV8` plus the existing streams | Lakitha's data pipeline |
 
 ---
@@ -217,30 +354,36 @@ python3 -m unittest discover -s tests -v
 | File | Change | Why |
 |---|---|---|
 | `runRoutineV8.py` | New: the v8 routine | The deliverable |
+| `publishV8.py` | New (must-fix 4): publishes the outbox to MQTT from its own process | No network I/O in the control loop |
+| `parkChamberV8.py` | New (must-fix 5): humidity OFF and STOP after an end the routine could not handle | SIGKILL, out-of-memory, crash, power loss |
+| `v8/systemd/*.service` | New (must-fixes 4, 5): the run unit with the park hook, park at boot, the publisher | Must-fixes 4, 5 |
+| `v8/.gitignore` | New: `state/` | The state file is runtime data |
 | `v8/schedule.tsv`, `v8/README.md`, `v8/.gitattributes` | New: verbatim schedule copy, its provenance and sha256, kept byte for byte | One source of truth |
-| `benchTestV8.py` | New: operator-present bench test of humidity ON/OFF and purge ON/OFF, with a cable-pull mode | Host duty 10 before the first run |
-| `tests/` | New: hermetic tests | Section 7 of the task |
+| `benchTestV8.py` | New: operator-present bench test of humidity ON/OFF and purge ON/OFF, with a cable-pull mode; MQTT through the outbox | Host duty 10 before the first run |
+| `tests/` | New: hermetic tests (86) | Section 7 of the task and the must-fix review |
 | `mintsXU4/especChamber/chamber.py` | Added `set_humidity_enabled` (CHNG 13), `set_dry_air_purge` (CHNG 14), their two `change_mapping` labels, and the optional `request_timeout` passed to the two `requests` calls | The v8 routine needs humidity OFF, the purge and a timeout; old callers are unchanged (`None` = no timeout) |
-| `status.sh` | Also reports `runRoutineV8.py` | `pgrep -f 'runRoutine.py'` does not match it |
+| `status.sh` | Also reports `runRoutineV8.py`, `publishV8.py` and the state file | `pgrep -f 'runRoutine.py'` does not match them |
 | `README.md` | Short "v8 routine" section | Points here |
 
 ## Left Alone on Purpose
 
 | What | Why |
 |---|---|
-| `mintsSensorReader.py`, `mintsDefinitions.py`, `mintsLatest.py`, MQTT settings | The data pipeline stays as it is |
+| `mintsSensorReader.py`, `mintsDefinitions.py`, `mintsLatest.py`, MQTT settings | The data pipeline stays as it is; `runRoutineV8.py` switches MQTT off in its own process only (`mSR.mqttOn = False`) |
 | Every `write_*` method (stream names, field names, order, types) | Calibration's `build_dataset.py` reads them |
 | `write_time_signal_set` writing to `DAP` | Changing it changes a stream the pipeline reads; reported below |
 | The existing `set_*` methods, `get_and_write_summary`, `get_available_chamber_index`, `execute_command`'s request and response handling | Pipeline; only the timeout argument was added |
 | `credentials.yml` | Never opened, staged or committed; reported below |
 | `runRoutine.py`, `runRoutineCustom.py`, `stopChamber.py`, `Chamber.Routine` / `run_routine` | The old grid routines and the manual STOP keep working |
+| `teledyneSensing`'s `t640Reader.py` | Read from only (register map, address); it keeps logging the T640 |
 | The default chamber URL `http://192.168.20.121` | Lakitha's; `--chamber-url` overrides it |
 | Everything in the Calibration repository | Read and copied from only |
 
 ## Provenance
 
 Every block in the new and changed files carries one tag: `ORIGINAL (Lakitha)`, `COPIED (Dr. Lary)` or
-`ADDED BY CLAUDE`. `grep -rn -E "ORIGINAL \(Lakitha\)|COPIED \(Dr. Lary\)|ADDED BY CLAUDE" firmware/` lists them.
+`ADDED BY CLAUDE`; changes of the must-fix review are marked `v8 must-fix review (2026-10-22)`.
+`grep -rn -E "ORIGINAL \(Lakitha\)|COPIED \(Dr. Lary\)|ADDED BY CLAUDE" firmware/` lists them.
 Calibration line numbers are at `d4db474`; Lakitha's at main `ccc8ab8`.
 
 | File | Block | Origin | Source |
@@ -253,15 +396,19 @@ Calibration line numbers are at `d4db474`; Lakitha's at main `ccc8ab8`.
 | `runRoutineV8.py` | `GS_GIVE_UP_MIN`, `RESUME_RISE_*` | Dr. Lary | `cycle.py:78-80` |
 | `runRoutineV8.py` | `RH_RANGE`, `SET_TOL` | Dr. Lary | `espec.py:47-48` |
 | `runRoutineV8.py` | `es_hpa`, `dew_point`, `rh_for_dew`, `dp_trajectory_rh` | Dr. Lary (verbatim) | `psychro.py:15-37` |
-| `runRoutineV8.py` | Rule-text patterns `grab`, `parse_rules` | Dr. Lary (simplified) | `schedule.py:230-307` |
+| `runRoutineV8.py` | Rule-text patterns `grab`, `parse_rules` | Dr. Lary (simplified; T640 patterns by Claude) | `schedule.py:230-307` |
 | `runRoutineV8.py` | `apply` | Dr. Lary (simplified) | `cycle.py:545-570` |
-| `runRoutineV8.py` | `check_rules`, `hold` | Dr. Lary (simplified) | `cycle.py:603-609, 626, 631-634, 637-639, 653-684` |
-| `runRoutineV8.py` | `startup` | Dr. Lary | `cycle.py:776-802` |
-| `runRoutineV8.py` | `run_point` (transition, resume rule, Td_from/Td_target, soak, give-up) | Dr. Lary (simplified) | `cycle.py:809-936` |
+| `runRoutineV8.py` | `check_rules`, `hold` | Dr. Lary (simplified; per-rule timers by Claude) | `cycle.py:603-609, 615-650, 653-684` |
+| `runRoutineV8.py` | `startup` | Dr. Lary (T640 start gate by Claude) | `cycle.py:776-802` |
+| `runRoutineV8.py` | `run_point` (transition, resume rule, Td_from/Td_target, window D, soak, give-up) | Dr. Lary (simplified) | `cycle.py:809-936`, `schedule.py:334-346` |
 | `runRoutineV8.py` | `stop`, `emergency_stop` | Dr. Lary (simplified) | `cycle.py:210-232, 938-946` |
 | `runRoutineV8.py` | `safe`, `safe_guarded` | Dr. Lary (simplified) | `cycle.py:948-1062` |
 | `runRoutineV8.py` | `run` | Dr. Lary (simplified) | `cycle.py:1097-1184` |
-| `runRoutineV8.py` | Settings, `Point`, `load_schedule`, `--plan`, exceptions, `read`, `confirmed`, `td_pv`, `capped_rh`, `loop`, `status`, `log_event` (RTNV8), `feed_change`, CLI, SIGTERM | Claude | — |
+| `runRoutineV8.py` | T640 register map in `T640Modbus.read` | teledyneSensing (Lakitha) | `firmware/xu4Mqtt/t640/t640.py`, `t640Reader.py` |
+| `runRoutineV8.py` | Settings, `Point`, `load_schedule`, `transition_min`, `window_fraction`, `--plan`, exceptions, `T640Modbus`, `T640Poller`, `StateFile`, `OperatorChannel`, `Outbox`, `install_outbox`, `read`, `confirmed`, `td_pv`, `capped_rh`, `held`, `t640_values`, `check_operator`, `ask`, `loop`, `status`, `log_event` (RTNV8), `save_state`, `feed_change`, `watch_text`, `blocked_reason`, `start_gate`, CLI, signals | Claude | — |
+| `publishV8.py` | Whole file | Claude (topic and payload of `mintsLatest.writeMQTTLatest`) | — |
+| `parkChamberV8.py` | Credentials, chamber index, `Chamber(...)` | Lakitha | `runRoutineCustom.py:7-27` |
+| `parkChamberV8.py` | Everything else | Claude (humidity OFF then STOP as Dr. Lary's `emergency_stop`) | — |
 | `benchTestV8.py` | Credentials, chamber index, `Chamber(...)` | Lakitha | `runRoutineCustom.py:7-27` |
 | `benchTestV8.py` | Everything else | Claude | — |
 | `chamber.py` | Whole file except the blocks below | Lakitha | main `ccc8ab8` |
@@ -269,7 +416,7 @@ Calibration line numbers are at `d4db474`; Lakitha's at main `ccc8ab8`.
 | `status.sh`, `README.md` | Whole file except the marked block | Lakitha | main `ccc8ab8` |
 | `status.sh`, `README.md` | v8 block | Claude | — |
 | `v8/schedule.tsv` | Whole file | Dr. Lary (verbatim) | Calibration `Docs/protocol/schedule.tsv` at `d809739` |
-| `V8_ROUTINE_UPDATE.md`, `v8/README.md`, `v8/.gitattributes`, `tests/*` | Whole files | Claude | — |
+| `V8_ROUTINE_UPDATE.md`, `v8/README.md`, `v8/.gitattributes`, `v8/.gitignore`, `v8/systemd/*`, `tests/*` | Whole files | Claude | — |
 
 ---
 
@@ -285,6 +432,16 @@ It starts CONSTANT at the current temperature, switches the humidity system ON /
 each one back, prints PASS or FAIL, and always ends with humidity OFF and STOP. Without `--i-am-at-the-chamber` it
 refuses and sends nothing.
 
+**T640 check** (while `t640Reader.py` keeps running on its host, so two Modbus clients at once are tested too):
+
+```bash
+python3 runRoutineV8.py --t640-check
+```
+
+Three good readings, each within a few seconds, with plausible sample RH and box T. If it fails while
+`t640Reader.py` runs and works when it is stopped, the T640 does not take a second Modbus client: report it before
+the run.
+
 **Cable-pull check** (shows the timeout and the no-reading abort working):
 
 1. Run `python3 benchTestV8.py --i-am-at-the-chamber --cable-pull`.
@@ -295,6 +452,14 @@ refuses and sends nothing.
    the routine tries humidity OFF and STOP and exits. **With the cable out these commands cannot arrive: stop the
    chamber at the panel.**
 
+**Park-hook check** (systemd installed, chamber at lab conditions):
+
+1. `sudo systemctl start runRoutineV8` with `V8_ARGS=--skip-precycle --start-point 1` in `v8/state/run.env`.
+2. Once point 1 holds, `sudo systemctl kill -s SIGKILL runRoutineV8`.
+3. `journalctl -u runRoutineV8` must show `parkChamberV8 … PARKING` and "Chamber parked"; the chamber reads standby
+   with humidity OFF; `v8/state/state.json` says `died, parked`.
+4. `python3 runRoutineV8.py --resume` would now start at point 1 (do not run it unless a run is wanted).
+
 ---
 
 ## Weekend Operator Checklist
@@ -303,23 +468,27 @@ Before the start:
 
 - [ ] Water tank filled (distilled water) and pressurised (18 psi), pump switched on.
 - [ ] Dry-air purge: air supply on, purge unit plugged in.
-- [ ] T640 running and logging to Influx; IPS units logging.
+- [ ] T640 running; `python3 runRoutineV8.py --t640-check` gives three readings.
+- [ ] `publishV8.service` and `v8-park-on-boot.service` enabled (`systemctl status publishV8 v8-park-on-boot`).
 - [ ] `python3 runRoutineV8.py --plan` reviewed: points, total, "at or below the 23 C tube cap".
-- [ ] Bench test passed (first v8 run only).
+- [ ] Bench test and park-hook check passed (first v8 run only).
 - [ ] Aerosol feed on **HEPA bypass** for pre1 and pre2.
-- [ ] Run inside `screen` or `tmux`, so it survives a dropped SSH session.
+- [ ] Start with `sudo systemctl start runRoutineV8` (or inside `screen` / `tmux`; then a SIGKILL is not parked).
 
 During the run:
 
-- [ ] pre1–pre3: check the printed T640 / IPS checklist by hand (blanks, LOD, loading check). If a check fails,
-      press Ctrl-C (humidity OFF + STOP) and fix it first.
-- [ ] At the pre2 → pre3 prompt, switch the aerosol feed to **aerosol** and press Enter.
-- [ ] Someone checks in overnight (console, `status.sh`, Grafana `BTL433ESC001*`).
+- [ ] pre1–pre3: check the printed T640 / IPS checklist by hand during each hold, then answer `pass` or `fail`
+      (`python3 runRoutineV8.py --operator pass`). A failed check goes to SAFE; do **not** press Ctrl-C for it.
+- [ ] At the feed prompt after pre2, switch the aerosol feed to **aerosol** and answer `go`.
+- [ ] If the run is started with `--no-t640`: someone watches the T640 sample RH at pre2 and points 12–21 with the
+      printed threshold and sends `--operator safe` when it is crossed.
+- [ ] Someone checks in overnight (`journalctl -fu runRoutineV8`, `status.sh`, Grafana `BTL433ESC001*`).
 
 After the stop row:
 
 - [ ] Open the chamber door (the routine prints this).
-- [ ] After a SAFE end the door stays closed until someone checks the chamber.
+- [ ] After a SAFE end the door stays closed until someone checks the chamber; the next start needs
+      `--clear-abort "<what was checked>"`.
 
 ---
 
@@ -341,14 +510,15 @@ After the stop row:
 
 ## Open Questions for Dr. Lary
 
-1. Is this simplified copy acceptable for the weekend run, given the dropped T640-based rules (pre-cycle checks,
-   T640 stale, the sample-RH / box-T excursion parts, the IPS/T640 ratio)?
-2. Should gate G0 become a pre-start script (`--plan` plus the Influx / NTP / T640 checks)?
+1. With the T640 rules back, is the remaining simplification acceptable for the weekend run (no WIMDA dew point, no
+   tube-heater rule, no IPS/T640 ratio, pre-cycle checks judged by the operator)?
+2. Should gate G0 become a pre-start script (`--plan`, `--t640-check`, plus the Influx / NTP checks)?
 3. The `DAP` issue (finding 1): new suffix for the time signal, or a pipeline-side filter?
 4. The tracked `credentials.yml` (finding 2).
-5. The new stream name `BTL433ESC001RTNV8`: acceptable, or another name?
-6. Arrival is "T has arrived". After an RH-only change (points 11, 23, 24, 26, 29, and pre2/pre3/30) the hold starts
-   while RH still settles; the schedule allowed 2–29 min for it. Should arrival also wait for |RH PV − set| ≤ 5 %
-   (as Lakitha's humidity-controlled branch does with ±2 %), or for the schedule's window D?
+5. The new stream name `BTL433ESC001RTNV8` (now with a `detail` field): acceptable, or another name?
+6. The SAFE dry-out could now end early on the T640 (Td_ch ≤ 5 °C and sample RH ≤ 35 % for 10 min, at most 90 min),
+   as the `safe` row says. Add it?
 7. The humid-soak RH-shortfall abort (RH PV < set − 10 % for 15 min) needs only chamber data. Should it be added back?
+8. Dry warm-ups count `humidify_after_min` from the moment T reaches its set point, so point 30's RH settling (D =
+   29 min for a 12-min ramp) stays inside D. Is that the runner's reading too?
 <!-- END ADDED BY CLAUDE -->
