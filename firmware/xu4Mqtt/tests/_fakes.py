@@ -189,10 +189,15 @@ class FakeT640:
     """``values(now)`` gives the T640 reading; ``alive(now)`` False = no new read (the last one ages)."""
 
     def __init__(self, clock, values=None, alive=None):
-        self.clock = clock
-        self.values = values or (lambda now: {"sample_rh": 30.0, "box_t": 40.0, "asc_duty": 50.0, "fault": 0, "pm25": 5.0})
+        self.clock, self.routine = clock, None       # run() sets routine: PM2.5 follows the point's aerosol feed
+        self.values = values or self.benign
         self.alive = alive or (lambda now: True)
         self.t_read, self.last, self.error = None, None, "never read"
+
+    def benign(self, now):
+        feed = self.routine.point.aerosol_feed if self.routine is not None else "aerosol"
+        return {"sample_rh": 30.0, "box_t": 40.0, "asc_duty": 50.0, "fault": 0,
+                "pm25": 0.1 if feed == "hepa_bypass" else 5.0}
 
     def latest(self):
         now = self.clock.now
@@ -271,8 +276,12 @@ def run(point_names=None, start_point=None, skip_precycle=False, skip_bake=False
         with open(os.devnull, "w") as devnull, mock.patch("sys.stdout", devnull), \
                 mock.patch("builtins.input", side_effect=AssertionError("blocking input() in the routine")):
             chamber = make_chamber(clock, ctrl, request_timeout=rr.REQUEST_TIMEOUT_S)
+            res.pings = []
             routine = rr.V8Routine(chamber, mSR, sel, rules, sha, t_from0=t_from0, operator_wait=operator_wait,
-                                   t640=res.t640, operator=res.operator, state=state)
+                                   t640=res.t640, operator=res.operator, state=state,
+                                   watchdog=lambda m: res.pings.append((clock.now, m)))
+            if res.t640 is not None:
+                res.t640.routine = routine
             if wrap:
                 wrap(routine)
             clock.hooks.extend(hooks)

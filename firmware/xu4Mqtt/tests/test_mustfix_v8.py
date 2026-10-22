@@ -74,7 +74,7 @@ class T640Rules(unittest.TestCase):                       # must-fix 2
         res = F.run(setup=setup, t640=make, **HUMID)
         self.assertEqual(res.outcome, "complete")
         holds = [(t, d["detail"]) for t, d in F.recs(res, "BTL433ESC001RTNV8") if d["eventID"] == 4]
-        self.assertEqual(len(holds), 1)
+        self.assertEqual([p for _, p in F.events(res, 4)][0], "17")   # the timer is not reset at 18 (as cycle.py:813-815)
         self.assertIn("T640 sample RH 50.0 % > 45 %", holds[0][1])
         self.assertAlmostEqual(holds[0][0] - first_at_17(res), 300.0, delta=25.0)
         target = round(rr.rh_for_dew(22.0, 32.5), 1)
@@ -220,7 +220,7 @@ class PreCycleChecks(unittest.TestCase):                  # must-fix 3
     def test_failed_check_goes_to_safe_not_stop(self):
         res = F.run(answers={("check", "pre2"): ("fail", 60.0)}, **self.PRE)
         self.assertEqual(res.outcome, "safe")
-        self.assertEqual([p for _, p in F.events(res, 15)], ["pre2"])
+        self.assertEqual([p for _, p in F.events(res, 14)], ["pre2"])
         self.assertEqual([p for _, p in F.events(res, 7)], ["pre2"])
         self.assertEqual(len(F.events(res, 8)), 1)               # SAFE: dry-out, then STOP
         self.assertEqual(len(F.events(res, 9)), 1)
@@ -232,8 +232,8 @@ class PreCycleChecks(unittest.TestCase):                  # must-fix 3
     def test_unanswered_check_goes_to_safe_after_30_min(self):
         res = F.run(answers={("check", "pre1"): (None, 0.0)}, **self.PRE)
         self.assertEqual(res.outcome, "safe")
-        self.assertEqual([p for _, p in F.events(res, 16)], ["pre1"])
-        self.assertAlmostEqual(F.events(res, 16)[0][0] - F.events(res, 6)[0][0], rr.OPERATOR_WAIT_MIN * 60.0, delta=11.0)
+        self.assertEqual([p for _, p in F.events(res, 15)], ["pre1"])
+        self.assertAlmostEqual(F.events(res, 15)[0][0] - F.events(res, 6)[0][0], rr.OPERATOR_WAIT_MIN * 60.0, delta=11.0)
 
     def test_point_1_waits_for_the_loading_check_with_the_rules_running(self):
         res = F.run(answers={("check", "pre3"): ("pass", 20 * 60.0)}, **self.PRE)
@@ -243,8 +243,9 @@ class PreCycleChecks(unittest.TestCase):                  # must-fix 3
         self.assertGreaterEqual(t_start_1 - t_end_pre3, 20 * 60.0)
         reads = [t for t, _ in F.recs(res, "BTL433ESC001TMPRT") if t_end_pre3 <= t <= t_start_1]
         self.assertLessEqual(max(b - a for a, b in zip(reads, reads[1:])), 10.0 + 1e-6)
-        self.assertEqual([d["detail"] for _, d in F.recs(res, "BTL433ESC001RTNV8") if d["eventID"] == 14],
-                         ["operator: pass"] * 3)
+        details = [d["detail"] for _, d in F.recs(res, "BTL433ESC001RTNV8") if d["eventID"] == 13]
+        self.assertEqual(len(details), 3)
+        self.assertTrue(all(d.endswith("operator: pass") and "T640 PM2.5 mean" in d for d in details), details)
 
     def test_unconfirmed_feed_change_goes_to_safe(self):
         res = F.run(answers={("feed", "pre3"): (None, 0.0)}, **self.PRE)
@@ -254,7 +255,7 @@ class PreCycleChecks(unittest.TestCase):                  # must-fix 3
     def test_operator_safe_request_at_any_time(self):
         res = F.run(safe_at=T0 + 2.5 * 3600, start_point="1")
         self.assertEqual(res.outcome, "safe")
-        self.assertEqual(len(F.events(res, 18)), 1)
+        self.assertEqual(len(F.events(res, 17)), 1)
         self.assertAlmostEqual(F.events(res, 7)[0][0] - (T0 + 2.5 * 3600), 0.0, delta=11.0)
 
     def test_operator_channel_reads_each_answer_once_and_drops_stale_ones(self):
@@ -267,7 +268,8 @@ class PreCycleChecks(unittest.TestCase):                  # must-fix 3
             with redirect_stdout(io.StringIO()):
                 rr.send_operator_answer("fail", d)
             self.assertIsNone(ch.poll(rr.time.time() + 60.0))      # older than the question: dropped
-            self.assertFalse(os.path.exists(os.path.join(d, "operator.json")))
+            self.assertIsNone(ch.poll(0.0))                         # and never read again
+            self.assertTrue(os.path.exists(os.path.join(d, "operator.json")))   # nothing deletes it (owner rule)
 
     def test_operator_cli_writes_the_answer_and_touches_nothing_else(self):
         boom = mock.Mock(side_effect=AssertionError("request made"))
@@ -276,6 +278,94 @@ class PreCycleChecks(unittest.TestCase):                  # must-fix 3
             self.assertEqual(rr.main(["--operator", "safe", "--state-dir", d]), 0)
             with open(os.path.join(d, "operator.json")) as f:
                 self.assertEqual(json.load(f)["answer"], "safe")
+
+
+class RunnerAlignment(unittest.TestCase):                # the runner (Calibration c082131) copied where it differed
+    PRE = dict(point_names=["pre1", "pre2", "pre3", "1"], operator_wait=True)
+
+    @staticmethod
+    def feed_pm(hepa, aerosol, **extra):
+        def make(clock):
+            t = F.FakeT640(clock)
+            t.values = lambda now: dict(t.benign(now), pm25=hepa if t.routine.point.aerosol_feed == "hepa_bypass"
+                                        else aerosol, **extra)
+            return t
+        return make
+
+    def detail(self, res, event_id):
+        return [d["detail"] for _, d in F.recs(res, "BTL433ESC001RTNV8") if d["eventID"] == event_id]
+
+    def test_precheck_numbers_parsed_from_the_rows(self):
+        pts = {p.name: p for p in rr.load_schedule(rr.SCHEDULE_FILE)[0]}
+        self.assertEqual((pts["pre1"].precheck["pm_max"], pts["pre1"].precheck["pm_window_min"]), (0.3, 5.0))
+        self.assertEqual((pts["pre2"].precheck["rh_target"], pts["pre2"].precheck["rh_tol"],
+                          pts["pre2"].precheck["rh_within_min"], pts["pre2"].precheck["rh_from"]), (80, 5, 15, "arrival"))
+        self.assertEqual(pts["pre2"].precheck["sample_rh_max_provisional"], 40.0)
+        self.assertEqual((pts["pre3"].precheck["pm_min"], pts["pre3"].precheck["rh_max"],
+                          pts["pre3"].precheck["rh_within_min"], pts["pre3"].precheck["rh_from"]), (3.0, 20.0, 25.0, "start"))
+        self.assertEqual(pts["pre1"].precheck["ips"], ["IPS blank sd -> LOD"])
+        self.assertIsNone(pts["1"].precheck)
+
+    def test_zero_blank_above_0_3_fails_without_asking(self):
+        res = F.run(t640=self.feed_pm(0.5, 5.0), **self.PRE)
+        self.assertEqual(res.outcome, "safe")
+        self.assertEqual(res.operator.asked, [])
+        self.assertIn("automatic: T640 PM2.5 mean 0.5 > 0.3", self.detail(res, 14)[0])
+        self.assertEqual([p for _, p in F.events(res, 7)], ["pre1"])
+
+    def test_loading_below_3_fails_at_the_end_of_pre3(self):
+        res = F.run(t640=self.feed_pm(0.1, 1.0), **self.PRE)
+        self.assertEqual(res.outcome, "safe")
+        self.assertIn("< 3 ug/m3", self.detail(res, 14)[0])
+        self.assertEqual([p for _, p in F.events(res, 7)], ["pre3"])
+        self.assertNotIn("1", [p for _, p in F.events(res, 1)])
+
+    def test_humid_blank_rh_not_reached_within_15_min_of_arrival_fails(self):
+        def setup(ctrl, clock):
+            ctrl.rh_override = lambda c: 60.0 if abs(c.rh_set - 80.0) < 0.05 else None
+        res = F.run(setup=setup, **self.PRE)
+        self.assertEqual(res.outcome, "safe")
+        (t_abort, point), = F.events(res, 7)
+        self.assertEqual(point, "pre2")
+        t_arr = [t for t, p in F.events(res, 2) if p == "pre2"][0]
+        self.assertAlmostEqual(t_abort - t_arr, 15 * 60.0, delta=11.0)
+        self.assertIn("not within 80 +- 5 %", self.detail(res, 14)[0])
+
+    def test_provisional_pre2_sample_rh_is_logged_not_aborted(self):
+        res = F.run(t640=self.feed_pm(0.1, 5.0, sample_rh=42.0), **self.PRE)
+        self.assertEqual(res.outcome, "complete")
+        self.assertEqual([p for _, p in F.events(res, 18)], ["pre2"])
+
+    def test_safe_without_the_t640_dries_to_the_90_min_hard_limit(self):
+        def wrap(routine):
+            orig = routine.run_point
+
+            def run_point(p, prev, first):
+                if p.name == "2":
+                    raise rr.Abort("test abort")
+                return orig(p, prev, first)
+            routine.run_point = run_point
+        res = F.run(t640=None, start_point="1", point_names=["1", "2"], wrap=wrap)
+        self.assertEqual(res.outcome, "safe")
+        self.assertEqual(self.detail(res, 9), ["hard limit 90 min (not dry)"])
+
+    def test_transition_extended_only_beyond_half_a_minute(self):
+        p = types.SimpleNamespace(window_min=8.0)
+        self.assertEqual(rr.transition_min(p, 8.3), 8.0)      # the generator's rounding: T set to T_k at the end of D
+        self.assertEqual(rr.transition_min(p, 9.0), 9.0)      # extended
+        self.assertEqual(rr.transition_min(types.SimpleNamespace(window_min=None), 3.0), 3.0)
+
+    def test_first_rh_only_step_is_rate_limited_to_6_percent_per_min(self):
+        res = F.run(start_point="11", point_names=["11"], t_pv=20.0, rh_pv=35.0)   # 20 C: 35 -> 15 %
+        t_start, t_arr = F.events(res, 1)[0][0], F.events(res, 2)[0][0]
+        self.assertAlmostEqual(t_arr - t_start, 20.0 / rr.RH_RATE_MAX * 60.0, delta=11.0)
+
+    def test_watchdog_ready_once_and_a_ping_every_tick(self):
+        res = F.run(start_point="1", point_names=["1", "2"])
+        self.assertEqual([m for _, m in res.pings].count("READY=1"), 1)
+        t = [t for t, m in res.pings if m == "WATCHDOG=1"]
+        self.assertLessEqual(max(b - a for a, b in zip(t, t[1:])), 30.0)   # a tick plus its commands, far below 300 s
+        self.assertFalse(rr.sd_notify("WATCHDOG=1"))           # no NOTIFY_SOCKET outside systemd
 
 
 class Outbox(unittest.TestCase):                          # must-fix 4
@@ -350,6 +440,15 @@ class Publisher(unittest.TestCase):                       # must-fix 4: the sepa
         with redirect_stdout(io.StringIO()):
             self.assertEqual(self.p.publish_pending(self.dir, lambda s, d: sent.append(s) or True, {}), (1, True))
         self.assertEqual(sent, ["A"])
+
+    def test_prune_never_deletes_an_outbox_file(self):
+        self.append(json.dumps({"sensor": "A", "data": {}}) + "\n")
+        old = os.path.join(self.dir, "2020-01-01.jsonl")
+        open(old, "w").close()
+        offsets = {"2020-01-01.jsonl": 0, "2026-10-22.jsonl": 0, "gone.jsonl": 5}
+        self.p.prune(self.dir, offsets)
+        self.assertTrue(os.path.exists(old))
+        self.assertEqual(sorted(offsets), ["2020-01-01.jsonl", "2026-10-22.jsonl"])
 
     def test_mqtt_publisher_uses_writemqttlatest_topic_and_payload(self):
         client = mock.Mock()
