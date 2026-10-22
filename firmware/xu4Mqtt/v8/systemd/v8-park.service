@@ -1,0 +1,21 @@
+# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 5: the OnFailure= unit of runRoutineV8.service, as the
+# runner's --emergency-stop unit (Docs/Chamber-Cycle-Runner.md "Run it as a service")
+#
+# Started by systemd when runRoutineV8.service fails for good (its restarts are not failures). parkChamberV8.py reads
+# v8/state/state.json and sends humidity OFF, then STOP, over the LAN when the run has no outcome or ended without a
+# confirmed STOP; never while a run is alive, after the chamber left CONSTANT by itself, or after a refused start.
+#
+#   sudo cp v8/systemd/v8-park.service /etc/systemd/system/ && sudo systemctl daemon-reload
+
+[Unit]
+Description=Park the ESPEC BTL-433 after runRoutineV8.service failed
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=teamlary
+WorkingDirectory=/home/teamlary/gitHubRepos/btl433EspecChamber/firmware/xu4Mqtt
+ExecStart=/usr/bin/python3 -u parkChamberV8.py --after-exit
+TimeoutStartSec=180
+# END ADDED BY CLAUDE

@@ -6,11 +6,13 @@ NEW FILE on branch feature/v8-routine-update.
 
 WHY. runRoutineV8.py parks the chamber on every end it sees (normal end, abort -> SAFE, Ctrl-C, SIGTERM, SIGHUP). It
 cannot on SIGKILL, out-of-memory, a crash of the interpreter or a power loss of the host: the chamber then keeps its
-last set point, possibly 90 % RH. The routine writes v8/state/state.json atomically at every event; this script
-reads it and parks the chamber when the run has no outcome, or ended without a confirmed STOP. It never acts while
-the routine still runs, after the chamber left CONSTANT by itself (the interlock wins) or after a refused start.
+last set point, possibly 90 % RH. Under systemd the routine restarts itself and resumes (runRoutineV8.service); when
+systemd gives up, its OnFailure= unit runs this script. The routine writes v8/state/state.json atomically at every
+event; this script reads it and parks the chamber when the run has no outcome, or ended without a confirmed STOP. It
+never acts while the routine still runs, after the chamber left CONSTANT by itself (the interlock wins) or after a
+refused start.
 
-    python3 parkChamberV8.py --after-exit    # ExecStopPost of v8/systemd/runRoutineV8.service (every end of the unit)
+    python3 parkChamberV8.py --after-exit    # v8/systemd/v8-park.service, the OnFailure= unit of runRoutineV8.service
     python3 parkChamberV8.py --on-boot       # v8/systemd/v8-park-on-boot.service (the host went down during a run)
 
 PROVENANCE. Written by Claude. The credentials / chamber-index / Chamber set-up is Lakitha's (runRoutineCustom.py);
@@ -75,7 +77,7 @@ def record(state_file, state, ok, why, by):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Park the chamber (humidity OFF, STOP) after runRoutineV8.py died.")
     when = ap.add_mutually_exclusive_group(required=True)
-    when.add_argument("--after-exit", action="store_true", help="the routine's process has ended (ExecStopPost)")
+    when.add_argument("--after-exit", action="store_true", help="the routine's unit has failed (OnFailure=)")
     when.add_argument("--on-boot", action="store_true", help="the host has just booted")
     ap.add_argument("--state-dir", default=STATE_DIR)
     ap.add_argument("--chamber-url", help="default: the run's URL from the state file, else %s" % url)
@@ -103,12 +105,12 @@ def main(argv=None):
 
     if chamber_index is None:
         print("No available chamber found: the chamber was NOT parked. Stop it at the panel.")
-        record(state_file, state, False, why, "boot" if args.on_boot else "ExecStopPost")
+        record(state_file, state, False, why, "boot" if args.on_boot else "OnFailure")
         return 1
 
     chamber = Chamber(chamber_url, chamber_index, token, request_timeout=REQUEST_TIMEOUT_S)
     ok = park(chamber)
-    record(state_file, state, ok, why, "boot" if args.on_boot else "ExecStopPost")
+    record(state_file, state, ok, why, "boot" if args.on_boot else "OnFailure")
     print("Chamber parked: humidity OFF, STOP read back" if ok else "STOP NOT confirmed: stop the chamber at the panel.")
     return 0 if ok else 1
 

@@ -1,30 +1,40 @@
-# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 5: run the v8 routine under systemd, parked on any end
+# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 5: run the v8 routine under systemd as Calibration's
+# runner runs (Docs/Chamber-Cycle-Runner.md "Run it as a service", host duty 9)
 #
 # Install (paths assume the XU4 layout of the other MINTS units; edit User / WorkingDirectory if they differ):
-#   sudo cp v8/systemd/runRoutineV8.service /etc/systemd/system/ && sudo systemctl daemon-reload
-# Start a run (not enabled at boot on purpose: a run is always started by a person):
+#   sudo cp v8/systemd/runRoutineV8.service v8/systemd/v8-park.service /etc/systemd/system/ && sudo systemctl daemon-reload
+# Start a run (not enabled at boot: a run is always started by a person):
 #   sudo systemctl start runRoutineV8                          # options: V8_ARGS in v8/state/run.env, e.g.
-#                                                              #   V8_ARGS=--resume
+#                                                              #   V8_ARGS=--skip-precycle --start-point 1
 # Watch it, answer it:
 #   journalctl -fu runRoutineV8
 #   python3 runRoutineV8.py --operator pass|fail|go|safe
-# Stop it (SIGTERM: humidity OFF, then STOP, as Ctrl-C):
+# Stop it (SIGTERM: humidity OFF, then STOP, as Ctrl-C; systemd does not restart a stop it was asked for):
 #   sudo systemctl stop runRoutineV8
 #
-# Type=notify and WatchdogSec as Calibration's runner (Docs/Chamber-Cycle-Runner.md "Run it as a service", host duty
-# 9): the routine sends READY=1 once CONSTANT is reached (or SAFE begins) and WATCHDOG=1 every 10-s tick. A routine
-# that hangs is killed by systemd and then parked. Its longest silence is one tick with a summary read, up to four
-# commands and a read-back, each request bounded by the 10-s connect and read timeouts (about 130 s), hence 300 s.
+# Watchdog: the routine sends READY=1 once CONSTANT is reached (or SAFE begins) and WATCHDOG=1 every 10-s tick. Its
+# longest silence is one tick with a summary read, up to four commands and a read-back, each request bounded by the
+# 10-s connect and read timeouts (about 130 s), hence WatchdogSec=300.
 #
-# ExecStopPost runs after EVERY end of the main process, including SIGKILL, the out-of-memory killer, the watchdog
-# and a crash of the interpreter. parkChamberV8.py reads v8/state/state.json and sends humidity OFF and STOP over the LAN only when
-# the run has no outcome or ended without a confirmed STOP (never while it runs, never after the chamber left
-# CONSTANT by itself). A power loss of the host is covered at the next boot by v8-park-on-boot.service.
+# Restart: a crash, a SIGKILL, the out-of-memory killer or the watchdog restart the routine after 15 s, and --resume
+# (always in ExecStart) makes the restart pick up from the state file: an unfinished run resumes at its point (the
+# first-step rule from the chamber PV), an unfinished ABORT / SAFE is continued and the cycle is not restarted. A
+# deliberate end does not restart (RestartPreventExitStatus): 2 refused, 3 SAFE completed, 4 the chamber left
+# CONSTANT by itself, 130 interrupted. 5 (SAFE failed, STOP unconfirmed, an error) restarts like the runner, and the
+# restart then refuses a finished abort (exit 2).
+#
+# Park: when systemd gives up (a deliberate non-zero end, or more than 5 starts in 30 min), OnFailure= starts
+# v8-park.service: parkChamberV8.py sends humidity OFF and STOP over the LAN unless the routine confirmed its own
+# STOP or must keep its hands off. Between a crash and its restart the chamber keeps its set point for about 15 s plus
+# the start-up, as with the runner. A power loss of the host is covered at the next boot by v8-park-on-boot.service.
 
 [Unit]
 Description=v8 calibration routine for the ESPEC BTL-433 (runRoutineV8.py)
 Wants=network-online.target
 After=network-online.target
+OnFailure=v8-park.service
+StartLimitIntervalSec=1800
+StartLimitBurst=5
 
 [Service]
 Type=notify
@@ -37,14 +47,15 @@ WorkingDirectory=/home/teamlary/gitHubRepos/btl433EspecChamber/firmware/xu4Mqtt
 Environment=V8_ARGS=
 EnvironmentFile=-/home/teamlary/gitHubRepos/btl433EspecChamber/firmware/xu4Mqtt/v8/state/run.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -u runRoutineV8.py $V8_ARGS
-ExecStopPost=/usr/bin/python3 -u parkChamberV8.py --after-exit
+ExecStart=/usr/bin/python3 -u runRoutineV8.py --resume $V8_ARGS
 StandardInput=null
 KillSignal=SIGTERM
 KillMode=mixed
 # the emergency stop sends up to four commands with a 10-s timeout each, plus a 1-s pause after each
 TimeoutStopSec=120
-Restart=no
+Restart=on-failure
+RestartSec=15
+RestartPreventExitStatus=2 3 4 130
 
 [Install]
 # none: started by hand only
