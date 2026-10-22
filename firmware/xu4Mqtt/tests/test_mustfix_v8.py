@@ -360,6 +360,37 @@ class RunnerAlignment(unittest.TestCase):                # the runner (Calibrati
         t_start, t_arr = F.events(res, 1)[0][0], F.events(res, 2)[0][0]
         self.assertAlmostEqual(t_arr - t_start, 20.0 / rr.RH_RATE_MAX * 60.0, delta=11.0)
 
+    def test_shortfall_and_purge_numbers_parsed_from_the_abort_row(self):
+        r = rr.load_schedule(rr.SCHEDULE_FILE)[2]
+        self.assertEqual((r["humid_T_min"], r["humid_rh_below"], r["humid_min"]), (15, 10, 15))
+        self.assertEqual((r["purge_rh_above"], r["purge_min"]), (5, 15))
+
+    def test_humid_soak_rh_shortfall_for_15_min_aborts_to_safe(self):          # cycle.py:689-695
+        def setup(ctrl, clock):
+            ctrl.rh_override = lambda c: 35.0 if c.humi_on and abs(c.rh_set - 50.0) < 0.05 else None
+        res = F.run(start_point="13", point_names=["13", "14"], t_pv=30.0, rh_pv=50.0, setup=setup)  # 30 C / 50 %
+        self.assertEqual(res.outcome, "safe")
+        (t_abort, point), = F.events(res, 7)
+        self.assertEqual(point, "13")
+        self.assertAlmostEqual(t_abort - F.events(res, 2)[0][0], 15 * 60.0, delta=11.0)
+        self.assertIn("water or steam supply", self.detail(res, 7)[0])
+
+    def test_shortfall_rule_skips_soaks_below_15_c(self):
+        def setup(ctrl, clock):
+            ctrl.rh_override = lambda c: 50.0 if c.humi_on and abs(c.rh_set - 65.0) < 0.05 else None
+        res = F.run(start_point="26", point_names=["26"], t_pv=10.0, rh_pv=35.0, setup=setup)       # 10 C / 65 %
+        self.assertEqual(res.outcome, "complete")
+
+    def test_purge_on_rh_excess_is_flagged_once_and_the_run_goes_on(self):     # cycle.py:696-702
+        def setup(ctrl, clock):
+            ctrl.rh_override = lambda c: 40.0 if c.humi_on and abs(c.rh_set - 30.0) < 0.05 else None
+        res = F.run(start_point="8", point_names=["8"], t_pv=30.0, rh_pv=30.0, setup=setup)         # 30 C / 30 %, purge ON
+        self.assertEqual(res.outcome, "complete")
+        (t_flag, point), = F.events(res, 19)
+        self.assertEqual(point, "8")
+        self.assertAlmostEqual(t_flag - F.events(res, 2)[0][0], 15 * 60.0, delta=11.0)
+        self.assertIn("purge or compressed air short", self.detail(res, 19)[0])
+
     def test_watchdog_ready_once_and_a_ping_every_tick(self):
         res = F.run(start_point="1", point_names=["1", "2"])
         self.assertEqual([m for _, m in res.pings].count("READY=1"), 1)
@@ -514,9 +545,9 @@ class StateAndResume(unittest.TestCase):                  # must-fix 5
         st = self.state.read()
         self.assertEqual((st["outcome"], st["phase"], st["chamber_parked"]), ("safe", "safe", True))
         code, _, out = self.gate(None)
-        self.assertEqual(code, 3)
-        self.assertIn("aborted to SAFE at point 2", out)
-        self.assertEqual(self.gate(None, "--resume")[0], 3)
+        self.assertEqual(code, rr.EXIT_USAGE)
+        self.assertIn("outcome 'safe' at point 2", out)
+        self.assertEqual(self.gate(None, "--resume")[0], rr.EXIT_USAGE)     # a finished abort is never resumed
         code, args, _ = self.gate(None, "--clear-abort", "inspected: dry, door closed")
         self.assertIsNone(code)
 
@@ -526,22 +557,61 @@ class StateAndResume(unittest.TestCase):                  # must-fix 5
         self.assertIsNone(code)
         self.assertEqual(args.start_point, "14")
 
-    def test_died_run_may_resume_unless_it_died_in_safe(self):
+    def test_died_run_resumes_and_a_died_safe_is_continued(self):       # cycle.py:1077-1094
         died = {"outcome": "died, parked", "point": "20", "phase": "transition", "last_event": 1, "schedule_sha": "sha"}
-        self.assertIsNone(self.gate(died, "--resume")[0])
-        died.update(phase="safe", last_event=8)
-        self.assertEqual(self.gate(died, "--resume")[0], 3)
+        code, args, _ = self.gate(died, "--resume", "--start-point", "1")     # run.env options do not undo a resume
+        self.assertEqual((code, args.start_point, args.resumed, args.continue_safe), (None, "20", True, False))
+        for prev in (dict(died, phase="safe", last_event=8), dict(died, outcome=None, last_event=7),
+                     dict(died, outcome="interrupted", phase="safe")):
+            code, args, out = self.gate(prev, "--resume")
+            self.assertEqual((code, args.continue_safe, args.start_point), (None, True, "20"), prev)
 
-    def test_resume_refused_after_completion_or_with_another_schedule(self):
-        self.assertEqual(self.gate({"outcome": "complete", "point": "bake", "schedule_sha": "sha"}, "--resume")[0], 3)
-        self.assertEqual(self.gate({"outcome": "interrupted", "point": "3", "schedule_sha": "old"}, "--resume")[0], 3)
+    def test_unfinished_run_needs_resume_or_a_start_point(self):
+        died = {"outcome": None, "point": "7", "phase": "soak", "schedule_sha": "sha"}
+        code, _, out = self.gate(died)
+        self.assertEqual(code, rr.EXIT_USAGE)
+        self.assertIn("pass --resume", out)
+        code, args, _ = self.gate(died, "--start-point", "3")
+        self.assertEqual((code, args.start_point, args.resumed), (None, "3", False))
+
+    def test_resume_after_completion_starts_as_asked_but_not_with_another_schedule(self):
+        code, args, _ = self.gate({"outcome": "complete", "point": "bake", "schedule_sha": "sha"}, "--resume")
+        self.assertEqual((code, args.start_point, args.resumed), (None, None, False))
+        self.assertEqual(self.gate({"outcome": "interrupted", "point": "3", "schedule_sha": "old"}, "--resume")[0],
+                         rr.EXIT_USAGE)
 
     def test_no_second_run_while_one_is_alive(self):
         alive = {"outcome": None, "pid": os.getpid(), "host": socket.gethostname(), "boot_id": rr.boot_id(),
                  "point": "5", "phase": "soak"}
         code, _, out = self.gate(alive, "--clear-abort", "x")
-        self.assertEqual(code, 3)
+        self.assertEqual(code, rr.EXIT_USAGE)
         self.assertIn("already running", out)
+
+    def test_exit_codes_tell_systemd_what_happened(self):                # cycle.py:96, 1063-1067
+        self.assertEqual([rr.exit_code(o) for o in ("complete", "refused", "safe", "left_constant", "interrupted",
+                                                    "safe_failed", "stop_unconfirmed", "error", "error, safe",
+                                                    "error, interrupted")],
+                         [0, 2, 3, 4, 130, 5, 5, 5, 5, 130])
+
+    def test_continue_safe_dries_out_a_humid_constant_chamber(self):
+        res = F.run(start_point="20", point_names=["20"], op="constant", t_pv=25.0, rh_pv=85.0, mode="continue_safe")
+        self.assertEqual(res.outcome, "safe")
+        self.assertEqual(F.events(res, 1), [])                     # the cycle is not restarted
+        self.assertEqual(len(F.events(res, 8)), 1)
+        self.assertEqual(F.last_commands(res)[-1], ("operations/stop_chamber", {"group": "standby"}))
+
+    def test_continue_safe_on_a_stopped_chamber_sends_nothing(self):
+        res = F.run(start_point="20", point_names=["20"], op="standby", mode="continue_safe")
+        self.assertEqual(res.outcome, "safe")
+        self.assertEqual(res.ctrl.posts, [])
+        self.assertIn("nothing to dry out", [d for _, d in F.recs(res, "BTL433ESC001RTNV8") if d["eventID"] == 9][0]["detail"])
+
+    def test_resumed_run_that_cannot_read_the_chamber_goes_to_safe(self):   # cycle.py:781-787
+        def setup(ctrl, clock):
+            ctrl.fail = lambda t: t > T0 + 6.0                     # the Chamber set-up reads, then nothing
+        res = F.run(start_point="14", point_names=["14"], op="constant", resumed=True, setup=setup)
+        self.assertEqual([p for _, p in F.events(res, 7)], ["14"])
+        self.assertEqual(res.outcome, "safe_failed")
 
     def test_left_constant_is_hands_off(self):
         res = F.run(setup=lambda c, k: setattr(c, "leave_constant_at", T0 + 3600), start_point="1",
@@ -586,10 +656,10 @@ class ParkHook(unittest.TestCase):                        # must-fix 5: parkCham
                           ("operations/stop_chamber", {"group": "standby"})])
         with tempfile.TemporaryDirectory() as d:
             sf = rr.StateFile(os.path.join(d, "state.json"))
-            self.pk.record(sf, {"outcome": None, "point": "19"}, True, "why", "ExecStopPost")
+            self.pk.record(sf, {"outcome": None, "point": "19"}, True, "why", "OnFailure")
             st = sf.read()
         self.assertEqual((st["outcome"], st["previous_outcome"], st["chamber_parked"], st["parked_by"]),
-                         ("died, parked", None, True, "ExecStopPost"))
+                         ("died, parked", None, True, "OnFailure"))
 
     def test_nothing_to_do_contacts_nothing(self):
         boom = mock.Mock(side_effect=AssertionError("request made"))
@@ -599,12 +669,17 @@ class ParkHook(unittest.TestCase):                        # must-fix 5: parkCham
             self.assertEqual(self.pk.main(["--after-exit", "--state-dir", d]), 0)
         self.assertIn("nothing to do", out.getvalue())
 
-    def test_systemd_units_park_after_every_exit_and_at_boot(self):
+    def test_systemd_unit_restarts_with_resume_and_parks_when_it_gives_up(self):
         folder = os.path.join(F.XU4, "v8", "systemd")
         with open(os.path.join(folder, "runRoutineV8.service")) as f:
             unit = f.read()
-        self.assertIn("ExecStopPost=/usr/bin/python3 -u parkChamberV8.py --after-exit", unit)
-        self.assertIn("Restart=no", unit)
+        for line in ("ExecStart=/usr/bin/python3 -u runRoutineV8.py --resume $V8_ARGS", "Restart=on-failure",
+                     "RestartPreventExitStatus=2 3 4 130", "OnFailure=v8-park.service", "Type=notify",
+                     "WatchdogSec=300"):
+            self.assertIn(line + "\n", unit)
+        self.assertNotIn("ExecStopPost", unit.split("[Unit]", 1)[1])     # no park between a crash and its restart
+        with open(os.path.join(folder, "v8-park.service")) as f:
+            self.assertIn("ExecStart=/usr/bin/python3 -u parkChamberV8.py --after-exit", f.read())
         with open(os.path.join(folder, "v8-park-on-boot.service")) as f:
             self.assertIn("parkChamberV8.py --on-boot", f.read())
 # END ADDED BY CLAUDE

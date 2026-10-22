@@ -251,7 +251,7 @@ def make_chamber(clock, ctrl, **kw):
 
 def run(point_names=None, start_point=None, skip_precycle=False, skip_bake=False, setup=None, hooks=(),
         operator_wait=False, t_pv=22.0, rh_pv=30.0, op="standby", wrap=None, t640="fake", answers=None, safe_at=None,
-        state=None):
+        state=None, mode="run", resumed=False):
     """Run one routine; returns a Result with outcome, ctrl, records, clock, routine, points, t640, operator.
     ``t640``: "fake" (benign readings), None (--no-t640) or fn(clock) -> a T640 object; ``state``: a StateFile."""
     points, stop_row, rules, sha = rr.load_schedule(rr.SCHEDULE_FILE)
@@ -279,7 +279,7 @@ def run(point_names=None, start_point=None, skip_precycle=False, skip_bake=False
             res.pings = []
             routine = rr.V8Routine(chamber, mSR, sel, rules, sha, t_from0=t_from0, operator_wait=operator_wait,
                                    t640=res.t640, operator=res.operator, state=state,
-                                   watchdog=lambda m: res.pings.append((clock.now, m)))
+                                   watchdog=lambda m: res.pings.append((clock.now, m)), mode=mode, resumed=resumed)
             if res.t640 is not None:
                 res.t640.routine = routine
             if wrap:
