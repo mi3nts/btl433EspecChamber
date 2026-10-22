@@ -25,7 +25,7 @@ import sys
 import time
 import traceback
 
-from runRoutineV8 import REQUEST_TIMEOUT_S, url
+from runRoutineV8 import REQUEST_TIMEOUT_S, install_outbox, outbox_folder, url
 
 
 def check(name, ok):
@@ -100,6 +100,11 @@ def main(argv=None):
     import mintsXU4.especChamber.chamber as eC
     from  mintsXU4.especChamber.chamber import Chamber
     from mintsXU4 import mintsDefinitions as mD
+
+    # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 4: as runRoutineV8.py, CSV and the outbox only, so the cable-pull timings are the chamber's alone
+    from mintsXU4 import mintsSensorReader as mSR
+    install_outbox(mSR, outbox_folder(mD))
+    # END ADDED BY CLAUDE
 
     credentials         = mD.credentials
     token               = credentials['chamber']['token']

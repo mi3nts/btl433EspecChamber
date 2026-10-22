@@ -1,0 +1,24 @@
+# ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - must-fix 4: MQTT publishing in its own process
+#
+# runRoutineV8.py writes CSV and a local outbox only; this unit publishes the outbox to the broker. A broker outage
+# only delays the publishing; the control loop never waits on it.
+#
+#   sudo cp v8/systemd/publishV8.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now publishV8
+
+[Unit]
+Description=Publish the v8 routine's outbox to the MINTS MQTT broker (publishV8.py)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=teamlary
+WorkingDirectory=/home/teamlary/gitHubRepos/btl433EspecChamber/firmware/xu4Mqtt
+ExecStart=/usr/bin/python3 -u publishV8.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+# END ADDED BY CLAUDE
