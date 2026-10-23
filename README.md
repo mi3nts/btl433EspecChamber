@@ -13,8 +13,9 @@ a verbatim copy from the Calibration repository) point by point in CONSTANT mode
 condensation, and logs through the same `BTL433ESC001*` streams as the other routines. It reads the T640 over the LAN,
 asks the operator to pass or fail each pre-cycle check, leaves MQTT to `publishV8.py`, and runs under systemd with a
 hook that parks the chamber whenever the routine dies (must-fix review, 2026-10-22). See
-[firmware/xu4Mqtt/V8_ROUTINE_UPDATE.md](firmware/xu4Mqtt/V8_ROUTINE_UPDATE.md) for what it does, how to run it and the
-weekend operator checklist.
+[firmware/xu4Mqtt/v8Guide.md](firmware/xu4Mqtt/v8Guide.md) for the full routine with its timings, and
+[firmware/xu4Mqtt/V8_ROUTINE_UPDATE.md](firmware/xu4Mqtt/V8_ROUTINE_UPDATE.md) for how it was built, setup, the bench
+test and the weekend operator checklist.
 
 ```bash
 cd firmware/xu4Mqtt && python3 runRoutineV8.py --plan
