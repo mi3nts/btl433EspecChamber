@@ -25,7 +25,7 @@ import sys
 import time
 import traceback
 
-from runRoutineV8 import REQUEST_TIMEOUT_S, install_outbox, outbox_folder, url
+from runRoutineV8 import REQUEST_TIMEOUT_S, install_outbox, outbox_folder, url, wait_standby
 
 
 def check(name, ok):
@@ -134,7 +134,7 @@ def main(argv=None):
                 fn()
             except Exception:
                 traceback.print_exc()
-        stopped = read(chamber) and chamber.operationLabel == "standby"
+        stopped = wait_standby(lambda: read(chamber), chamber)   # 2026-10-23: one read right after STOP still said 'constant'
         results.append(check("chamber STOPPED (humidity OFF)", stopped))
         if not stopped:
             print("STOP the chamber at the panel now.")

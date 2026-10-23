@@ -425,7 +425,7 @@ python3 -m unittest discover -s tests -v
 | `v8/.gitignore` | New: `state/` | The state file is runtime data |
 | `v8/schedule.tsv`, `v8/README.md`, `v8/.gitattributes` | New: verbatim schedule copy, its provenance and sha256, kept byte for byte | One source of truth |
 | `benchTestV8.py` | New: operator-present bench test of humidity ON/OFF and purge ON/OFF, with a cable-pull mode; MQTT through the outbox | Host duty 10 before the first run |
-| `tests/` | New: hermetic tests (105) | Section 7 of the task and the must-fix review |
+| `tests/` | New: hermetic tests (107) | Section 7 of the task and the must-fix review |
 | `mintsXU4/especChamber/chamber.py` | Added `set_humidity_enabled` (CHNG 13), `set_dry_air_purge` (CHNG 14), their two `change_mapping` labels, and the optional `request_timeout` passed to the two `requests` calls | The v8 routine needs humidity OFF, the purge and a timeout; old callers are unchanged (`None` = no timeout) |
 | `status.sh` | Also reports `runRoutineV8.py`, `publishV8.py` and the state file | `pgrep -f 'runRoutine.py'` does not match them |
 | `README.md` | Short "v8 routine" section | Points here |

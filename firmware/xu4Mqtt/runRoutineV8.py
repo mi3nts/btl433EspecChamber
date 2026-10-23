@@ -81,6 +81,7 @@ T640_UNIT         = 1
 T640_TIMEOUT_S    = 3.0                  # per connection and per reply; the read runs in its own thread
 T640_START_WAIT_S = 60.0                 # no T640 reading this long after start: refused, nothing sent
 OPERATOR_WAIT_MIN = 30.0                 # an unanswered pre-cycle check or feed change goes to SAFE
+STOP_CONFIRM_S    = 20.0                 # bench test 2026-10-23: after STOP the summary still said 'constant' for > 1 s (loops already off)
 WATCH_TD_C        = 15.0                 # --no-t640: points whose dew point is at or above this need a person watching the T640 (12-21)
 # END ADDED BY CLAUDE
 
@@ -350,6 +351,18 @@ def banner(message):
         print(f"#  {line}")
     print("#" * 78)
     print()
+
+
+def wait_standby(read, chamber, timeout_s=STOP_CONFIRM_S, poll_s=3.0):
+    """After STOP: read the summary until it reports standby; True when it does within timeout_s. The controller
+    turns the loops off at once but keeps reporting operation 'constant' for a few seconds (bench test 2026-10-23)."""
+    t_end = time.time() + timeout_s
+    while True:
+        if read() and chamber.operationLabel == "standby":
+            return True
+        if time.time() >= t_end:
+            return False
+        time.sleep(poll_s)
 # END ADDED BY CLAUDE
 
 
@@ -1265,7 +1278,7 @@ class V8Routine:
                 try:
                     ok = fn()
                     if what == "STOP":
-                        ok = ok and self.read() and self.c.operationLabel == "standby"
+                        ok = ok and wait_standby(self.read, self.c)   # bench test 2026-10-23: CHANGED - one read came too early
                         stopped = bool(ok)
                     if ok:
                         break

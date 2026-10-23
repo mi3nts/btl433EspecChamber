@@ -528,6 +528,18 @@ class StateAndResume(unittest.TestCase):                  # must-fix 5
         self.assertEqual(final["last_event_label"], "Run Ended")
         self.assertEqual([f for f in os.listdir(self.dir) if f.endswith(".tmp")], [])
 
+    def test_stop_waits_for_the_summary_to_report_standby(self):          # bench test 2026-10-23
+        res = F.run(start_point="1", point_names=["1"], state=self.state,
+                    setup=lambda ctrl, clock: setattr(ctrl, "stop_lag_s", 5.0))
+        final = self.state.read()
+        self.assertEqual((res.outcome, final["chamber_parked"]), ("complete", True))
+        self.assertEqual(sum(cmd == "operations/stop_chamber" for _, cmd, _, _ in res.ctrl.posts), 1)
+
+    def test_stop_never_reported_is_not_parked(self):
+        F.run(start_point="1", point_names=["1"], state=self.state,
+              setup=lambda ctrl, clock: setattr(ctrl, "stop_lag_s", 10 * rr.STOP_CONFIRM_S))
+        self.assertFalse(self.state.read()["chamber_parked"])
+
     def test_state_mid_run_names_the_point_and_phase_without_outcome(self):
         snap = {}
 

@@ -96,6 +96,8 @@ class FakeController:
         self.fail = lambda t: False            # True: every request answers HTTP 500
         self.ignore_t = lambda v: False        # True: a temperature set point is silently not taken
         self.leave_constant_at = None
+        self.stop_lag_s = 0.0                  # the summary reports standby this long after STOP (real chamber: a few s)
+        self.standby_at = None
         self.rh_override = None                # fn(controller) -> reported RH PV or None
         self.posts = []                        # (t, command, json, t_set before the command)
         self.calls = []                        # (method, timeout)
@@ -109,6 +111,8 @@ class FakeController:
         dt, self.last = (now - self.last) / 60.0, now
         if self.leave_constant_at is not None and now >= self.leave_constant_at and self.op == "constant":
             self.op = "standby"
+        if self.standby_at is not None and now >= self.standby_at:
+            self.op, self.standby_at = "standby", None
         if self.op != "constant" or dt <= 0:
             return
         d = self.t_set - self.t_pv
@@ -155,7 +159,10 @@ class FakeController:
         if cmd == "operations/start_constant":
             self.op = "constant"
         elif cmd == "operations/stop_chamber":
-            self.op = "standby"
+            if self.stop_lag_s > 0:
+                self.standby_at = self.clock.now + self.stop_lag_s
+            else:
+                self.op = "standby"
         elif cmd == "constants/constant_1":
             if "temp" in json and not self.ignore_t(json["temp"]["set_value"]):
                 self.t_set = json["temp"]["set_value"]
