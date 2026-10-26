@@ -16,24 +16,22 @@ pre3	22	15	25		1.0	ON	0	ON	ON	aerosol	none(timed)	-25	-5.9	precycle	loading chec
 12	35	35	30	28	1.0	ON	0	ON	OFF	aerosol	1.0	559	17.3	humid	ramp RH set point = dew point interpolated with T
 13	30	50	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	597	18.4	kappa	ramp RH set point = dew point interpolated with T
 14	25	65	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	634	18.0	kappa	ramp RH set point = dew point interpolated with T
-15	20	75	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	670	15.4	kappa	ramp RH set point = dew point interpolated with T
-16	35	45	45	45	1.0	OFF	10	ON	OFF	aerosol	1.0	713	21.3	kappa	dry warm-up: humidity OFF during the ramp
-17	32.5	55	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	762	22.3	kappa	ramp RH set point = dew point interpolated with T
-18	30	65	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	794	22.7	kappa	ramp RH set point = dew point interpolated with T
-19	27.5	75	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	826	22.7	kappa	ramp RH set point = dew point interpolated with T
-20	25	85	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	858	22.3	kappa	ramp RH set point = dew point interpolated with T
-21	20	90	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	895	18.3	kappa	ramp RH set point = dew point interpolated with T
-22	15	30	30	28	0.6	ON	0	ON	ON	aerosol	1.0	943	-2.5	dry	ramp RH set point = dew point interpolated with T
-23	15	65	35	35	0.6	ON	0	ON	OFF	aerosol	1.0	979	8.5	kappa	
-24	15	90	35	35	0.6	ON	0	ON	OFF	aerosol	1.0	1018	13.4	kappa	
-25	10	35	30	28	0.6	ON	0	ON	ON	aerosol	none(timed)	1062	-4.8	humid	ramp RH set point = dew point interpolated with T
-26	10	65	35	35	0.6	ON	0	ON	OFF	aerosol	none(timed)	1097	3.7	kappa	
-27	5	OFF	28	28	0.6	OFF	0	OFF	OFF	aerosol	none(timed)	1140		coldhumid	
-28	10	90	46	46	1.0	OFF	10	ON	OFF	aerosol	none(timed)	1173	8.4	kappa	dry warm-up: humidity OFF during the ramp
-29	10	95	30	n/a (fog)	0.6	ON	0	ON	OFF	aerosol	none(timed)	1221	9.2	fog	
-30	22	15	48	48	1.0	OFF	0	ON	ON	aerosol	none(timed)	1280	-5.9	anchor	dry warm-up: humidity OFF during the ramp
-bake	45	15	22		1.0	ON	0	ON	ON	aerosol	none(timed)	1351	12.4	bake	after END, CONSTANT mode; 45 min IN TOTAL from END including the 23-min heat-up; T640 stays on the chamber (Td 12.4 C)
-stop								OFF	OFF			1373		stop	STOP the chamber, door open; notify
-excursion													23	rules	DEW-POINT EXCURSION (no valve; host, every 10-s tick): Td_ch = dew point of the chamber PV (and of WIMDA ref_Td when present; use the higher). HOLD if Td_ch > cap (23 C) + 1 C for 2 min, or t640_sample_RH > 45 % for 5 min while t640_asc_duty >= 95 %, or Td_ch > t640_box_T - 3 C, or Td_ch > tube heater - 5 C (when logged): step the RH set point back to the RH whose dew point is cap - 1 C at the current T set point, keep it there for the rest of the step (never re-raise within the step), log event, notify. ABORT to SAFE if t640_sample_RH > 60 % for 10 min, or > 75 % for 2 min, or Td_ch > cap + 3 C for 5 min, or Td_ch >= t640_box_T, or t640_sample_RH > 60 % for 5 min, or t640_fault = 1 for 5 min while t640_sample_RH > 45 % (t640_fault = WRNS.systemFaultWarning; the T640's Sample RH High alarm is snapshot-only and cannot be read every tick).
+15	20	45	28	28	0.6	ON	0	ON	OFF	aerosol	1.0	670	7.7	kappa	ramp RH set point = dew point interpolated with T
+16	20	60	35	35	0.6	ON	0	ON	OFF	aerosol	1.0	700	12.0	kappa	
+17	20	70	35	35	0.6	ON	0	ON	OFF	aerosol	1.0	737	14.4	kappa	
+18	20	80	35	35	0.6	ON	0	ON	OFF	aerosol	1.0	774	16.4	kappa	
+19	20	90	35	35	0.6	ON	0	ON	OFF	aerosol	1.0	811	18.3	kappa	
+20	15	30	30	28	0.6	ON	0	ON	ON	aerosol	1.0	866	-2.5	dry	ramp RH set point = dew point interpolated with T
+21	15	65	35	35	0.6	ON	0	ON	OFF	aerosol	1.0	902	8.5	kappa	
+22	15	90	35	35	0.6	ON	0	ON	OFF	aerosol	1.0	941	13.4	kappa	
+23	10	35	30	28	0.6	ON	0	ON	ON	aerosol	none(timed)	986	-4.8	humid	ramp RH set point = dew point interpolated with T
+24	10	65	35	35	0.6	ON	0	ON	OFF	aerosol	none(timed)	1020	3.7	kappa	
+25	5	OFF	28	28	0.6	OFF	0	OFF	OFF	aerosol	none(timed)	1064		coldhumid	
+26	10	90	46	46	1.0	OFF	10	ON	OFF	aerosol	none(timed)	1097	8.4	kappa	dry warm-up: humidity OFF during the ramp
+27	10	95	30	n/a (fog)	0.6	ON	0	ON	OFF	aerosol	none(timed)	1145	9.2	fog	
+28	22	15	60	48	1.0	OFF	0	ON	ON	aerosol	none(timed)	1203	-5.9	anchor	dry warm-up: humidity OFF during the ramp
+bake	45	15	22		1.0	ON	0	ON	ON	aerosol	none(timed)	1286	12.4	bake	after END, CONSTANT mode; 45 min IN TOTAL from END including the 23-min heat-up; T640 stays on the chamber (Td 12.4 C)
+stop								OFF	OFF			1308		stop	STOP the chamber, door open; notify
+excursion													19	rules	DEW-POINT EXCURSION (no valve; the binding limit of the T640 tube and the unheated Frog line; host, every 10-s tick): Td_ch = dew point of the chamber PV (and of WIMDA ref_Td when present; use the higher). HOLD if Td_ch > cap (19 C) + 1 C for 2 min, or t640_sample_RH > 45 % for 5 min while t640_asc_duty >= 95 %, or Td_ch > t640_box_T - 3 C, or Td_ch > tube heater - 5 C (when logged): step the RH set point back to the RH whose dew point is cap - 1 C at the current T set point, keep it there for the rest of the step (never re-raise within the step), log event, notify. ABORT to SAFE if t640_sample_RH > 60 % for 10 min, or > 75 % for 2 min, or Td_ch > cap + 2 C for 2 min, or Td_ch >= t640_box_T, or t640_sample_RH > 60 % for 5 min, or t640_fault = 1 for 5 min while t640_sample_RH > 45 % (t640_fault = WRNS.systemFaultWarning; the T640's Sample RH High alarm is snapshot-only and cannot be read every tick).
 abort														rules	ABORT the night (-> SAFE) if: a pre-cycle check fails (pre1-pre3, except the provisional pre2 sample-RH check; the cycle does not start; a failed gate G0 check only blocks the start); pull-down to -18 C > 90 min; the dew-point excursion ABORT fires; no valid chamber reading for 5 min, or a set point unconfirmed for 5 min; T640 data stale > 5 min; humidity ON at a within-chart humid soak (T >= 15 C, past humidify_after) with RH PV < set - 10 % for 15 min (water or steam supply); IPS/T640 ratio moves > 2x from anchor A at a dry soak without an RH change. FLAG + notify (no abort): RH PV > set + 5 % for 15 min at a purge-ON soak (purge or compressed air short; replaces 'purge duty > 30 %', which the API cannot read). If the chamber leaves CONSTANT mode by itself (alarm, water out, over/under-temperature protection, panel STOP): do NOT restart it, do NOT enter SAFE, log + notify and end; the interlock wins.
 safe														rules	SAFE STATE: humidity system OFF; T set point = the PV clamped to 22-30 C, ramped at 1.0 C/min up / 0.6 C/min down; on arrival humidity ON at 15 % with the dry-air purge ON for 60 min (end early once Td_ch <= 5 C and t640_sample_RH <= 35 % for 10 min; never longer than 90 min); then STOP (door closed: the next person opens it); notify on entry and on stop. The T640 keeps sampling the chamber and logging; nothing is masked at build time: rows whose measured T640 sample RH exceeds 50 % leave the fit; the heater duty and the fault bit are logged for diagnosis, not used by the fit.
