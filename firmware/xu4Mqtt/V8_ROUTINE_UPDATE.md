@@ -13,7 +13,8 @@ built, what was left out, setup and pre-run checks, and open issues.
 - **Request** (Rittik Patra, 2026-10-20): copy the runner and simplify it as far as possible, using
   `runRoutineCustom.py` as the reference. The points must run in order and condensation must be avoided.
 - **Sources:** Calibration `d4db474`, with every cited range re-checked unchanged at `c082131`. `schedule.tsv` was last
-  changed at `d809739`; its sha256 is `9f59b5fb…` ([v8/README.md](v8/README.md)).
+  changed at `3ca7f85` (2026-10-23, the Frog-line cap of 19 °C; recopied 2026-10-26, was `d809739`); its sha256 is
+  `92ee4e08…` ([v8/README.md](v8/README.md)).
 
 ---
 
@@ -23,7 +24,7 @@ built, what was left out, setup and pre-run checks, and open issues.
 
 | # | Finding | Fix |
 |---|---|---|
-| 1 | Holds started when T arrived, which cut 99 min of RH settling from the holds | The transition lasts the schedule's window D; the hold starts at its end. Plan = the schedule's 1,490 min exactly. |
+| 1 | Holds started when T arrived, which cut 99 min of RH settling from the holds | The transition lasts the schedule's window D; the hold starts at its end. Plan = the schedule's span exactly (1,490 min then; 1,425 min since the 2026-10-26 recopy). |
 | 2 | No T640 protection | The T640 is read locally every 10 s; its HOLD / ABORT, box-T, fault-bit and stale-data rules are back |
 | 3 | A failed pre-cycle check went to STOP, leaving the chamber humid | The routine checks the T640 PM2.5 and chamber RH items, then asks pass / fail. A fail or no answer runs SAFE. |
 | 4 | MQTT publishing ran inside the 10-s control loop | The routine writes CSV and a local outbox; `publishV8.py` publishes from its own process |
@@ -45,7 +46,7 @@ confirmed by polling for `standby` for up to 20 s (`wait_standby`).
 ## Kept / Simplified / Dropped
 
 Everything from the runner not listed below is kept as the runner does it: points in schedule order, ramps, the
-dew-point trajectory, dry warm-ups, the first-step / resume rule, the 23 °C cap, guaranteed soaks with a 60-min
+dew-point trajectory, dry warm-ups, the first-step / resume rule, the dew-point cap (19 °C since `3ca7f85`), guaranteed soaks with a 60-min
 give-up, the chamber and T640 abort rules, the SAFE dry-out, the restart decision, and the interlock hands-off.
 
 | Runner feature | Here | Why |
@@ -178,7 +179,7 @@ Before the start:
 - [ ] Dry-air purge supply on, purge unit plugged in.
 - [ ] T640 running; `python3 runRoutineV8.py --t640-check` gives three readings.
 - [ ] `publishV8` and `v8-park-on-boot` enabled, `v8-park.service` installed.
-- [ ] `python3 runRoutineV8.py --plan` reviewed; it ends "at or below the 23 C tube cap".
+- [ ] `python3 runRoutineV8.py --plan` reviewed; it ends "at or below the 19 C tube cap". The cap assumes a Frog line at about 22 °C.
 - [ ] Bench test passed (first v8 run only).
 - [ ] Aerosol feed on **HEPA bypass**.
 - [ ] Start with `sudo systemctl start runRoutineV8`, not `screen` / `tmux`: outside systemd a crash is neither

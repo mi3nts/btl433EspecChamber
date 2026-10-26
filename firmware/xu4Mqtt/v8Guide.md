@@ -6,13 +6,13 @@ takes. For why it was built this way and where each piece came from, see
 [V8_ROUTINE_UPDATE.md](V8_ROUTINE_UPDATE.md).
 
 - **What it runs:** the MINTS-AI calibration programme v8, [`v8/schedule.tsv`](v8/schedule.tsv). That file is a
-  verbatim copy (sha256 `9f59b5fb…`), and the routine runs its rows in file order. No set point is typed into the Python.
-- **How long:** **24 h 50 min (1,490 min)** from the start of pre1 to STOP. Pre-cycle answers and guaranteed soaks
+  verbatim copy (sha256 `92ee4e08…`, Calibration `3ca7f85`, the Frog-line schedule), and the routine runs its rows in file order. No set point is typed into the Python.
+- **How long:** **23 h 45 min (1,425 min)** from the start of pre1 to STOP. Pre-cycle answers and guaranteed soaks
   can make it longer; see [How long it really takes](#how-long-it-really-takes).
-- **How many points:** 34, made up of 3 pre-cycle checks, 30 calibration points and the bake, then STOP.
+- **How many points:** 32, made up of 3 pre-cycle checks, 28 calibration points and the bake, then STOP.
 - **Mode:** the chamber stays in CONSTANT mode throughout. The routine sends every set point itself; nothing is
   programmed on the panel.
-- **Example:** start at 08:00 Saturday, and the chamber stops at about 08:50 Sunday.
+- **Example:** start at 08:00 Saturday, and the chamber stops at about 07:45 Sunday.
 
 Print the timed plan for the current clock without touching anything:
 
@@ -56,24 +56,22 @@ means the humidity system is off for the whole point.
 | 15 | 12 | humid | 35 | 35 | 17.3 | 1.0 | 15 | 30 | gs ±1 | trajectory | OFF | aerosol | 11:01 | 11:16 | 11:46 |
 | 16 | 13 | kappa | 30 | 50 | 18.4 | 0.6 | 8 | 28 | gs ±1 | trajectory | OFF | aerosol | 11:46 | 11:54 | 12:22 |
 | 17 | 14 | kappa | 25 | 65 | 18.0 | 0.6 | 9 | 28 | gs ±1 | trajectory | OFF | aerosol | 12:22 | 12:31 | 12:59 |
-| 18 | 15 | kappa | 20 | 75 | 15.4 | 0.6 | 8 | 28 | gs ±1 | trajectory | OFF | aerosol | 12:59 | 13:07 | 13:35 |
-| 19 | 16 | kappa | 35 | 45 | 21.3 | 1.0 | 15 | 45 | gs ±1 | dry warm-up, ON +10 min | OFF | aerosol | 13:35 | 13:50 | 14:35 |
-| 20 | 17 | kappa | 32.5 | 55 | 22.3 | 0.6 | 4 | 28 | gs ±1 | trajectory | OFF | aerosol | 14:35 | 14:39 | 15:07 |
-| 21 | 18 | kappa | 30 | 65 | 22.7 | 0.6 | 4 | 28 | gs ±1 | trajectory | OFF | aerosol | 15:07 | 15:11 | 15:39 |
-| 22 | 19 | kappa | 27.5 | 75 | 22.7 | 0.6 | 4 | 28 | gs ±1 | trajectory | OFF | aerosol | 15:39 | 15:43 | 16:11 |
-| 23 | 20 | kappa | 25 | 85 | 22.3 | 0.6 | 4 | 28 | gs ±1 | trajectory | OFF | aerosol | 16:11 | 16:15 | 16:43 |
-| 24 | 21 | kappa | 20 | 90 | 18.3 | 0.6 | 9 | 28 | gs ±1 | trajectory | OFF | aerosol | 16:43 | 16:52 | 17:20 |
-| 25 | 22 | dry | 15 | 30 | −2.5 | 0.6 | 20 | 30 | gs ±1 | trajectory | ON | aerosol | 17:20 | 17:40 | 18:10 |
-| 26 | 23 | kappa | 15 | 65 | 8.5 | 0.6 | 6 | 35 | gs ±1 | linear | OFF | aerosol | 18:10 | 18:16 | 18:51 |
-| 27 | 24 | kappa | 15 | 90 | 13.4 | 0.6 | 4 | 35 | gs ±1 | linear | OFF | aerosol | 18:51 | 18:55 | 19:30 |
-| 28 | 25 | humid | 10 | 35 | −4.8 | 0.6 | 9 | 30 | timed | trajectory | ON | aerosol | 19:30 | 19:39 | 20:09 |
-| 29 | 26 | kappa | 10 | 65 | 3.7 | 0.6 | 5 | 35 | timed | linear | OFF | aerosol | 20:09 | 20:14 | 20:49 |
-| 30 | 27 | coldhumid | 5 | OFF | — | 0.6 | 8 | 28 | timed | OFF | OFF | aerosol | 20:49 | 20:57 | 21:25 |
-| 31 | 28 | kappa | 10 | 90 | 8.4 | 1.0 | 5 | 46 | timed | dry warm-up, ON +10 min | OFF | aerosol | 21:25 | 21:30 | 22:16 |
-| 32 | 29 | fog | 10 | 95 | 9.2 | 0.6 | 2 | 30 | timed | linear | OFF | aerosol | 22:16 | 22:18 | 22:48 |
-| 33 | 30 | anchor | 22 | 15 | −5.9 | 1.0 | 29 | 48 | timed | dry warm-up | ON | aerosol | 22:48 | 23:17 | 24:05 |
-| 34 | **bake** | bake | 45 | 15 | 12.4 | 1.0 | 23 | 22 | timed | trajectory | ON | aerosol | 24:05 | 24:28 | 24:50 |
-| — | **stop** | stop | — | OFF | — | — | — | — | — | OFF | OFF | — | 24:50 | — | — |
+| 18 | 15 | kappa | 20 | 45 | 7.7 | 0.6 | 8 | 28 | gs ±1 | trajectory | OFF | aerosol | 12:59 | 13:07 | 13:35 |
+| 19 | 16 | kappa | 20 | 60 | 12.0 | 0.6 | 2 | 35 | gs ±1 | linear | OFF | aerosol | 13:35 | 13:37 | 14:12 |
+| 20 | 17 | kappa | 20 | 70 | 14.4 | 0.6 | 2 | 35 | gs ±1 | linear | OFF | aerosol | 14:12 | 14:14 | 14:49 |
+| 21 | 18 | kappa | 20 | 80 | 16.4 | 0.6 | 2 | 35 | gs ±1 | linear | OFF | aerosol | 14:49 | 14:51 | 15:26 |
+| 22 | 19 | kappa | 20 | 90 | 18.3 | 0.6 | 2 | 35 | gs ±1 | linear | OFF | aerosol | 15:26 | 15:28 | 16:03 |
+| 23 | 20 | dry | 15 | 30 | −2.5 | 0.6 | 20 | 30 | gs ±1 | trajectory | ON | aerosol | 16:03 | 16:23 | 16:53 |
+| 24 | 21 | kappa | 15 | 65 | 8.5 | 0.6 | 6 | 35 | gs ±1 | linear | OFF | aerosol | 16:53 | 16:59 | 17:34 |
+| 25 | 22 | kappa | 15 | 90 | 13.4 | 0.6 | 4 | 35 | gs ±1 | linear | OFF | aerosol | 17:34 | 17:38 | 18:13 |
+| 26 | 23 | humid | 10 | 35 | −4.8 | 0.6 | 10 | 30 | timed | trajectory | ON | aerosol | 18:13 | 18:23 | 18:53 |
+| 27 | 24 | kappa | 10 | 65 | 3.7 | 0.6 | 4 | 35 | timed | linear | OFF | aerosol | 18:53 | 18:57 | 19:32 |
+| 28 | 25 | coldhumid | 5 | OFF | — | 0.6 | 9 | 28 | timed | OFF | OFF | aerosol | 19:32 | 19:41 | 20:09 |
+| 29 | 26 | kappa | 10 | 90 | 8.4 | 1.0 | 5 | 46 | timed | dry warm-up, ON +10 min | OFF | aerosol | 20:09 | 20:14 | 21:00 |
+| 30 | 27 | fog | 10 | 95 | 9.2 | 0.6 | 2 | 30 | timed | linear | OFF | aerosol | 21:00 | 21:02 | 21:32 |
+| 31 | 28 | anchor | 22 | 15 | −5.9 | 1.0 | 28 | 60 | timed | dry warm-up | ON | aerosol | 21:32 | 22:00 | 23:00 |
+| 32 | **bake** | bake | 45 | 15 | 12.4 | 1.0 | 23 | 22 | timed | trajectory | ON | aerosol | 23:00 | 23:23 | 23:45 |
+| — | **stop** | stop | — | OFF | — | — | — | — | — | OFF | OFF | — | 23:45 | — | — |
 
 Notes on the table:
 
@@ -84,10 +82,15 @@ Notes on the table:
   early, and the hold still starts at the end of the window. That gap is RH settling time built into the schedule.
 - **Point 2 (−20 °C) is the longest transition, at 70 min.** The chamber must pull down to −18 °C within 90 min of
   the point's start, or the run aborts to SAFE.
-- **The bake** lasts 45 min in total after point 30 (23-min heat-up plus 22-min hold), as the schedule's text
+- **The bake** lasts 45 min in total after point 28 (23-min heat-up plus 22-min hold), as the schedule's text
   requires.
-- Every RH set point has its dew point at or below the 23 °C cap. `--plan` checks this, and the run refuses to start
+- Every RH set point has its dew point at or below the 19 °C cap. `--plan` checks this, and the run refuses to start
   if any point is above it.
+- **The 19 °C cap protects the unheated Palas Frog line** (Calibration `3ca7f85`, 2026-10-23): the chamber dew point
+  stays at least 3 °C under the line temperature, taken as 22 °C. If the line is colder than about 22 °C the cap is
+  too high for it; this routine does not measure the line, so check the lab temperature before a run. The warm humid
+  points of the earlier 23 °C schedule (35/45 to 20/90, dew points up to 22.7 °C) are replaced by the 20 °C ladder,
+  points 15–19.
 
 ---
 
@@ -102,14 +105,14 @@ Notes on the table:
 | Warm out of the cold | 6, 7 | 6:07–8:10 | 2 h 03 | 5 °C / 85 %, then 42 °C / 20 %. Both are dry warm-ups, so the sensors warm above the dew point first. |
 | Humid, falling T | 8–10 | 8:10–10:13 | 2 h 03 | 30 → 25 → 20 °C at 30–35 % |
 | Anchor | 11 | 10:13–11:01 | 48 min | 20 °C / 15 % |
-| High dew point, falling T | 12–15 | 11:01–13:35 | 2 h 34 | 35 → 20 °C, RH rising 35 → 75 %, Td 15–18 °C |
-| Highest dew point (kappa) | 16–21 | 13:35–17:20 | 3 h 45 | 35 → 20 °C, RH 45 → 90 %, Td up to 22.7 °C, just under the 23 °C cap |
-| 15 °C sweep | 22–24 | 17:20–19:30 | 2 h 10 | 15 °C at 30, 65 and 90 % |
-| 10 °C / 5 °C | 25–27 | 19:30–21:25 | 1 h 55 | 10 °C at 35 and 65 %, then 5 °C with humidity OFF |
-| Humid and fog | 28, 29 | 21:25–22:48 | 1 h 23 | 10 °C at 90 %, then 95 % fog |
-| Closing anchor | 30 | 22:48–24:05 | 1 h 17 | Back to 22 °C / 15 % with a dry warm-up and purge |
-| Bake | bake | 24:05–24:50 | 45 min | 45 °C / 15 % with purge, to dry the chamber and the lines |
-| Stop | stop | 24:50 | — | Humidity OFF, then STOP. **Open the door.** |
+| High dew point, falling T | 12–14 | 11:01–12:59 | 1 h 58 | 35 → 25 °C, RH rising 35 → 65 %, Td 17.3–18.4 °C, under the 19 °C cap |
+| 20 °C humidity ladder (kappa) | 15–19 | 12:59–16:03 | 3 h 04 | 20 °C at 45, 60, 70, 80 and 90 %, Td 7.7 → 18.3 °C |
+| 15 °C sweep | 20–22 | 16:03–18:13 | 2 h 10 | 15 °C at 30, 65 and 90 % |
+| 10 °C / 5 °C | 23–25 | 18:13–20:09 | 1 h 56 | 10 °C at 35 and 65 %, then 5 °C with humidity OFF |
+| Humid and fog | 26, 27 | 20:09–21:32 | 1 h 23 | 10 °C at 90 %, then 95 % fog |
+| Closing anchor | 28 | 21:32–23:00 | 1 h 28 | Back to 22 °C / 15 % with a dry warm-up and purge |
+| Bake | bake | 23:00–23:45 | 45 min | 45 °C / 15 % with purge, to dry the chamber and the lines |
+| Stop | stop | 23:45 | — | Humidity OFF, then STOP. **Open the door.** |
 
 The order is set by physics. The cold points run while the chamber is still dry, the highest dew points come in the
 middle, and the fog comes last before the dry anchor and the bake.
@@ -134,7 +137,7 @@ thread over Modbus/TCP, and every safety rule is checked at every tick. The temp
    exactly their minutes. Guaranteed rows count only in-band minutes, and they are abandoned at hold + 60 min with a
    warning (`RTNCHG` 11).
    - For dry warm-ups, humidity switches ON at the row's RH at the end of the transition, or 10 min after it for
-     points 6, 16 and 28.
+     points 6 and 26.
 4. **Pre-cycle answer** (pre1–pre3 only). At the end of the hold the routine runs its automatic checks and then asks
    `pass` or `fail`. See [Pre-cycle checks](#pre-cycle-checks).
 5. The next point starts straight away.
@@ -178,26 +181,26 @@ These three checks gate the calibration. Point 1 does not start until pre3 passe
 | ~1:06 | pre2: answer `pass` / `fail` |
 | ~1:06 | Switch the aerosol feed to **aerosol**, then answer `go` |
 | ~1:57 | pre3: record the IPS/T640 ratio, then answer `pass` / `fail` |
-| 1:57–24:50 | Nothing scheduled. Someone checks in overnight with `journalctl -fu runRoutineV8`, `status.sh` or Grafana `BTL433ESC001*`. |
-| 24:50 | **Open the chamber door.** |
+| 1:57–23:45 | Nothing scheduled. Someone checks in overnight with `journalctl -fu runRoutineV8`, `status.sh` or Grafana `BTL433ESC001*`. |
+| 23:45 | **Open the chamber door.** |
 
 With `--no-t640` the T640 rules are off. Someone must then watch the T640 sample RH during **pre2 (0:30–1:06)** and
-**points 12–21 (11:01–17:20)**, and send `--operator safe` when the printed threshold is crossed.
+**points 12–14 (11:01–12:59) and 18–19 (14:49–16:03)**, and send `--operator safe` when the printed threshold is crossed.
 
 ---
 
 ## How Long It Really Takes
 
-**The plan is 24 h 50 min.** Three things can add to it:
+**The plan is 23 h 45 min.** Three things can add to it:
 
 | Cause | Adds | Worst case |
 |---|---|---|
 | Operator answers (3 checks and 1 feed change) | The time until each answer | 30 min each, then SAFE instead of the run |
-| Guaranteed soaks (points 1–3 and 8–24, 20 points) | The minutes the T PV spends outside its band | 60 min per point, then the soak is given up |
+| Guaranteed soaks (points 1–3 and 8–22, 18 points) | The minutes the T PV spends outside its band | 60 min per point, then the soak is given up |
 | First-point ramp, if the chamber is not at 22 °C | Distance ÷ 1.0 °C/min (up) or ÷ 0.6 °C/min (down) | — |
 | A transition whose ramp needs more than its window + 0.5 min | The extra ramp time, printed | None in v8 at 22 °C start |
 
-In practice, expect about **25–26 h** with a prompt operator and a chamber that tracks its set points.
+In practice, expect about **24–25 h** with a prompt operator and a chamber that tracks its set points.
 
 ---
 
@@ -205,15 +208,15 @@ In practice, expect about **25–26 h** with a prompt operator and a chamber tha
 
 ### Condensation guard (every 10 s)
 
-- **Cap:** no RH set point is ever sent whose dew point is above **23 °C** at the T being sent.
-- **HOLD** lowers RH to a 22 °C dew point for the rest of the point, and never raises it again within that point. It
+- **Cap:** no RH set point is ever sent whose dew point is above **19 °C** at the T being sent.
+- **HOLD** lowers RH to an 18 °C dew point for the rest of the point, and never raises it again within that point. It
   fires on any of these:
-  - chamber dew point > 24 °C for 2 min;
+  - chamber dew point > 20 °C for 2 min;
   - T640 sample RH > 45 % for 5 min while the ASC heater duty is ≥ 95 %;
   - chamber dew point > T640 box T − 3 °C.
 - **ABORT to SAFE** on any of these:
   - T640 sample RH > 75 % for 2 min, > 60 % for 5 min, or > 60 % for 10 min;
-  - chamber dew point > 26 °C for 5 min;
+  - chamber dew point > 21 °C for 2 min (checked before the HOLD, so a jump straight past 21 °C aborts without one);
   - chamber dew point ≥ T640 box T;
   - T640 fault bit set for 5 min while sample RH > 45 %.
 
@@ -281,7 +284,7 @@ Every status line shows the point, its phase, T and RH (set and PV), the purge, 
 **time left**. For example:
 
 ```text
-Point 12 (15/34, soak) | T set 35.0 -> 35 (PV 34.9) | RH set 35.0 (PV 35.2) | purge OFF | point 0:21 | run 11:22, about 13:28 left | T640 sample RH 31.0 %, box 38.4 C
+Point 12 (15/32, soak) | T set 35.0 -> 35 (PV 34.9) | RH set 35.0 (PV 35.2) | purge OFF | point 0:21 | run 11:22, about 12:23 left | T640 sample RH 31.0 %, box 38.4 C
 ```
 
 ---
@@ -295,7 +298,7 @@ MQTT from its own process.
 |---|---|
 | `BTL433ESC001STATUS`, `TMPRT`, `HMDTY`, `DAP`, `PRGRM` | Every 10 s |
 | `BTL433ESC001CHNG` | Every command sent |
-| `BTL433ESC001RTNCHG` | Run started, each hold start (*Routine Holding*, iteration = position 1–34), a guaranteed soak given up, run ended |
+| `BTL433ESC001RTNCHG` | Run started, each hold start (*Routine Holding*, iteration = position 1–32), a guaranteed soak given up, run ended |
 | `BTL433ESC001RTNPRGV2` | Once per point, at the start of its transition |
 | `BTL433ESC001RTNV8` | Events: transition started, hold start, humidity on after a dry warm-up, dew-point HOLD, abort, SAFE, pre-cycle answers, flags, run ended |
 

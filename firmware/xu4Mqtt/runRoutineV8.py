@@ -4,13 +4,13 @@ runRoutineV8.py - the v8 calibration routine for the ESPEC BTL-433 (v8 routine u
 
 NEW FILE on branch feature/v8-routine-update.
 
-WHAT. Runs the points of v8/schedule.tsv in file order (pre1-pre3, 1-30, bake, then the stop row) in CONSTANT mode.
+WHAT. Runs the points of v8/schedule.tsv in file order (pre1-pre3, 1-28, bake, then the stop row) in CONSTANT mode.
 Per point, as the runner: a transition that lasts the schedule's window D (the TSV's arrival time minus the previous
 row's end; extended only when the T ramp at the row's rate needs more than D + 0.5 min), during which T ramps at the
 row's rate and the RH set point follows the dew-point trajectory (an RH-only change goes linearly over D); then a
 timed or guaranteed soak from the end of D. The chamber summary is read every 10 s and the T640 every 10 s
 (Modbus/TCP over the LAN, in a background thread). The dew-point guard (dew-point trajectory, dry warm-ups, the
-first-step rule, the 23 C cap, the chamber-PV and T640 HOLD / ABORT rules, the stale-T640 rule) keeps water off the
+first-step rule, the 19 C cap, the chamber-PV and T640 HOLD / ABORT rules, the stale-T640 rule) keeps water off the
 sensors and the sample tube. pre1-pre3: the T640 PM2.5 and chamber RH items of each check are checked by the routine,
 then the operator answers pass or fail (the IPS items); a failure or no answer goes to SAFE. SAFE dries out until
 the chamber and the T640 sample are dry (safe row: early end, hard limit). However the script ends, the chamber is
@@ -19,8 +19,8 @@ a hang, a crash), as the runner: systemd restarts it with --resume, which reads 
 or continues an unfinished SAFE; when systemd gives up, parkChamberV8.py (OnFailure=) parks the chamber.
 
 PROVENANCE. A simplified copy of Dr. Lary's chamber runner: Calibration tools/run_chamber_cycle.py and
-calib/chamber/cycle.py, psychro.py, schedule.py, espec.py at Calibration commit d4db474 (schedule.tsv last changed at
-d809739). Structure, entry point and data pipeline from Lakitha's runRoutineCustom.py and Chamber.Routine.run_routine
+calib/chamber/cycle.py, psychro.py, schedule.py, espec.py at Calibration commit d4db474 (schedule.tsv recopied 2026-10-26, last changed at
+3ca7f85). Structure, entry point and data pipeline from Lakitha's runRoutineCustom.py and Chamber.Routine.run_routine
 (main ccc8ab8). Ramp, dew-point, soak, SAFE and abort logic copied and simplified from cycle.py; Magnus formulas
 copied from psychro.py; TSV parsing, the 10-s / 60-s loop, logging glue, console output and the CLI added by Claude.
 The must-fix review (2026-10-22) added the transition window, the T640 reader and rules, the pre-cycle checks, the
@@ -82,7 +82,7 @@ T640_TIMEOUT_S    = 3.0                  # per connection and per reply; the rea
 T640_START_WAIT_S = 60.0                 # no T640 reading this long after start: refused, nothing sent
 OPERATOR_WAIT_MIN = 30.0                 # an unanswered pre-cycle check or feed change goes to SAFE
 STOP_CONFIRM_S    = 20.0                 # bench test 2026-10-23: after STOP the summary still said 'constant' for > 1 s (loops already off)
-WATCH_TD_C        = 15.0                 # --no-t640: points whose dew point is at or above this need a person watching the T640 (12-21)
+WATCH_TD_C        = 15.0                 # --no-t640: points whose dew point is at or above this need a person watching the T640 (12-14, 18-19)
 # END ADDED BY CLAUDE
 
 # ORIGINAL (Lakitha) - runRoutineCustom.py:17 at main ccc8ab8
@@ -133,7 +133,7 @@ def dp_trajectory_rh(T, t0, T1, td0, td1):
 # ADDED BY CLAUDE (v8 routine update, 2026-10-20) - schedule.tsv reader - one source of truth, no point retyped in Python
 # v8 routine update: SIMPLIFIED - the runner validates every column (calib/chamber/schedule.py:354-480); here only the 15 columns of task 5.1 and must-fix 1 are read - the file is the verbatim, sha-logged copy
 class Point:
-    """One point row of schedule.tsv (pre1-pre3, 1-30, bake)."""
+    """One point row of schedule.tsv (pre1-pre3, 1-28, bake)."""
 
     def __init__(self, r):
         onoff = {"ON": True, "OFF": False}
@@ -239,11 +239,11 @@ def grab(pattern, text):
 
 def parse_rules(by):
     ex, ab, sf = (by[k]["check_or_rule"] for k in ("excursion", "abort", "safe"))
-    r = {"cap": float(by["excursion"]["dew_point_C"])}                          # excursion row, dew_point_C: 23 C
+    r = {"cap": float(by["excursion"]["dew_point_C"])}                          # excursion row, dew_point_C: 19 C
     (r["tick_s"],) = grab(r"every " + NUM + r"-s tick", ex)                       # 10 s
     r["hold_over"], r["hold_min"] = grab(r"HOLD if Td_ch > cap \(-?[0-9.]+ C\) \+ " + NUM + r" C for " + NUM + r" min", ex)
     (r["hold_below"],) = grab(r"dew point is cap - " + NUM + r" C at the current T set point", ex)
-    r["abort_over"], r["abort_min"] = grab(r"or Td_ch > cap \+ " + NUM + r" C for " + NUM + r" min", ex)    # 3 C, 5 min
+    r["abort_over"], r["abort_min"] = grab(r"or Td_ch > cap \+ " + NUM + r" C for " + NUM + r" min", ex)    # 2 C, 2 min
     r["pulldown_T"], r["pulldown_min"] = grab(r"pull-down to " + NUM + r" C > " + NUM + r" min", ab)   # -18 C, 90 min
     (r["no_reading_min"],) = grab(r"no valid chamber reading for " + NUM + r" min", ab)               # 5 min
     (r["unconfirmed_min"],) = grab(r"a set point unconfirmed for " + NUM + r" min", ab)               # 5 min
@@ -1521,9 +1521,9 @@ def blocked_reason(prev):
 def parse_args(argv):
     ap = argparse.ArgumentParser(description="Run the v8 calibration routine (v8/schedule.tsv) on the ESPEC BTL-433.")
     ap.add_argument("--plan", action="store_true", help="print the timed plan and the dew points, contact nothing")
-    ap.add_argument("--start-point", help="resume at this point (pre1-pre3, 1-30, bake)")
+    ap.add_argument("--start-point", help="resume at this point (pre1-pre3, 1-28, bake)")
     ap.add_argument("--skip-precycle", action="store_true", help="skip pre1-pre3")
-    ap.add_argument("--skip-bake", action="store_true", help="stop after point 30")
+    ap.add_argument("--skip-bake", action="store_true", help="stop after point 28")
     ap.add_argument("--chamber-url", default=url, help=f"Web Controller base URL (default {url})")
     ap.add_argument("--no-operator-wait", action="store_true", help="do not wait for the operator at the aerosol-feed change")
     # ADDED BY CLAUDE (v8 must-fix review, 2026-10-22) - T640, operator answers, state and resume
