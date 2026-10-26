@@ -21,7 +21,7 @@ from unittest import mock
 import _fakes as F
 from _fakes import rr
 
-ALL = ["pre1", "pre2", "pre3"] + [str(i) for i in range(1, 31)] + ["bake"]
+ALL = ["pre1", "pre2", "pre3"] + [str(i) for i in range(1, 29)] + ["bake"]
 
 
 class ScheduleAndPlan(unittest.TestCase):
@@ -33,14 +33,14 @@ class ScheduleAndPlan(unittest.TestCase):
         self.assertEqual(self.stop_row["tag"], "stop")
 
     def test_schedule_is_the_verbatim_copy(self):
-        self.assertTrue(self.sha.startswith("9f59b5fbbedd238b"))
+        self.assertTrue(self.sha.startswith("92ee4e0873b00c0e"))
         with open(os.path.join(F.XU4, "v8", "README.md"), encoding="utf-8") as f:
             self.assertIn(self.sha, f.read())
 
     def test_rule_numbers_read_from_the_rule_rows(self):
         r = self.rules
-        self.assertEqual((r["cap"], r["tick_s"], r["hold_over"], r["hold_min"], r["hold_below"]), (23, 10, 1, 2, 1))
-        self.assertEqual((r["abort_over"], r["abort_min"]), (3, 5))
+        self.assertEqual((r["cap"], r["tick_s"], r["hold_over"], r["hold_min"], r["hold_below"]), (19, 10, 1, 2, 1))
+        self.assertEqual((r["abort_over"], r["abort_min"]), (2, 2))
         self.assertEqual((r["pulldown_T"], r["pulldown_min"], r["no_reading_min"], r["unconfirmed_min"]), (-18, 90, 5, 5))
         self.assertEqual((r["safe_lo"], r["safe_hi"], r["safe_up"], r["safe_down"], r["safe_rh"], r["safe_dry_min"]),
                          (22, 30, 1.0, 0.6, 15, 60))
@@ -59,15 +59,15 @@ class ScheduleAndPlan(unittest.TestCase):
             self.assertRegex(text, r"\n\s*\d+\s+%s\s" % p.name)
             if p.rh_set is not None:
                 self.assertIn("%.1f" % rr.dew_point(p.t_set, p.rh_set), text)
-        self.assertIn("Total 24.83 h (1490 min)", text)   # v8 must-fix 1: the TSV's own pre1 -> stop span
+        self.assertIn("Total 23.75 h (1425 min)", text)   # v8 must-fix 1: the TSV's own pre1 -> stop span
         self.assertRegex(text, r"\n\s*14\s+11\s+20\s+15\s+-7.5\s+0.0\s+13.0\s")   # point 11: no ramp, D = 13 min
         self.assertIn(self.sha, text)
-        self.assertIn("at or below the 23 C tube cap", text)
+        self.assertIn("at or below the 19 C tube cap", text)
 
     def test_plan_refuses_a_dew_point_above_the_cap(self):
         with open(rr.SCHEDULE_FILE, "rb") as f:
             raw = f.read().decode("utf-8")
-        bad = raw.replace("\n19\t27.5\t75\t", "\n19\t27.5\t95\t")      # 27.5 C / 95 % -> Td 26.5 C > 23 C
+        bad = raw.replace("\n13\t30\t50\t", "\n13\t30\t95\t")      # 30 C / 95 % -> Td 29.1 C > 19 C
         self.assertNotEqual(bad, raw)
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "schedule.tsv")
@@ -77,7 +77,7 @@ class ScheduleAndPlan(unittest.TestCase):
             with redirect_stdout(out):
                 self.assertEqual(rr.main(["--plan"], schedule_path=path), 2)
                 self.assertEqual(rr.main(["--state-dir", d], schedule_path=path), 2)   # the real run refuses before any import
-        self.assertIn("REFUSED: the dew point of points 19", out.getvalue())
+        self.assertIn("REFUSED: the dew point of points 13", out.getvalue())
 
     def test_point_selection(self):
         names = lambda argv: [p.name for p in rr.select_points(self.points, rr.parse_args(argv))[0]]  # noqa: E731
@@ -87,7 +87,7 @@ class ScheduleAndPlan(unittest.TestCase):
         self.assertEqual(names(["--start-point", "12"]), ALL[ALL.index("12"):])
         self.assertEqual(rr.select_points(self.points, rr.parse_args(["--start-point", "12"]))[1], 20.0)
         with self.assertRaises(SystemExit):
-            names(["--start-point", "31"])
+            names(["--start-point", "29"])
         with self.assertRaises(SystemExit):
             names(["--start-point", "pre2", "--skip-precycle"])
 
@@ -153,17 +153,17 @@ class NormalRun(unittest.TestCase):
         self.assertEqual(list(d), ["dateTime", "eventID", "eventLabel", "point", "tag", "temperatureSet", "humiditySet",
                                    "humiditySystem", "dryAirPurge", "aerosolFeed", "holdMin", "rampRate", "gsBand",
                                    "scheduleSha", "detail"])
-        self.assertTrue(d["scheduleSha"].startswith("9f59b5fb"))
+        self.assertTrue(d["scheduleSha"].startswith("92ee4e08"))
         self.assertLess(len(F.recs(self.res, "BTL433ESC001RTNV8")), 10 * len(ALL))     # events only, not ticks
 
     def test_no_rh_set_point_above_the_dew_point_cap(self):
         posts = [(h["set_value"], t_set) for _, h, t_set in F.humidity_posts(self.res) if "set_value" in h]
         self.assertGreater(len(posts), 100)
         for rh, t_set in posts:
-            self.assertLessEqual(rr.dew_point(t_set, rh), 23.0 + 1e-9, (rh, t_set))
+            self.assertLessEqual(rr.dew_point(t_set, rh), 19.0 + 1e-9, (rh, t_set))
 
     def test_humidity_off_rows_stay_off(self):
-        for name in ("2", "3", "27"):
+        for name in ("2", "3", "25"):
             t0, t1 = self.start[name] + 0.5, self.start[ALL[ALL.index(name) + 1]]
             ons = [t for t, on in self.res.ctrl.humi_log if on and t0 <= t < t1]
             self.assertEqual(ons, [], name)
@@ -171,7 +171,7 @@ class NormalRun(unittest.TestCase):
 
     def test_dry_warm_ups_switch_humidity_on_after_humidify_after_min(self):
         dry = [p for p in self.res.points if p.rh_set is not None and not p.ramp_humidity]
-        self.assertEqual([p.name for p in dry], ["6", "7", "16", "28", "30"])
+        self.assertEqual([p.name for p in dry], ["6", "7", "26", "28"])
         log = self.res.ctrl.humi_log
         for p in dry:
             on_at = self.arrive[p.name] + p.humidify_after_min * 60.0       # from arrival = the end of D (cycle.py:903)
@@ -205,7 +205,7 @@ class NormalRun(unittest.TestCase):
                     self.assertAlmostEqual(h["set_value"], prev.rh_set + (p.rh_set - prev.rh_set) * f, delta=0.3,
                                            msg=(p.name, t, h))
                     linear += 1
-        self.assertGreater(traj, 100)
+        self.assertGreater(traj, 80)      # 92 since the Frog schedule (3ca7f85) dropped the warm-humid ladder
         self.assertGreater(linear, 20)
 
     def test_holds_start_at_the_end_of_the_schedule_window(self):        # v8 must-fix 1
@@ -214,7 +214,7 @@ class NormalRun(unittest.TestCase):
             ramp_min = abs(p.t_set - prev.t_set) / p.ramp_rate
             self.assertGreaterEqual(self.arrive[p.name] - self.start[p.name], rr.transition_min(p, ramp_min) * 60.0,
                                     p.name)
-        for name in ("pre2", "pre3", "11", "22", "23", "24", "26", "30"):       # the early holds of the review
+        for name in ("pre2", "pre3", "11", "20", "21", "22", "24", "28"):       # the early holds of the review
             p = next(q for q in self.res.points if q.name == name)
             self.assertAlmostEqual(self.arrive[name] - self.start[name], p.window_min * 60.0, delta=75.0, msg=name)
 
@@ -256,15 +256,15 @@ class NormalRun(unittest.TestCase):
 class StartPointAndRestart(unittest.TestCase):
     def test_start_point_and_iteration_restart(self):
         for _ in range(2):
-            res = F.run(start_point="25", t_pv=10.0, rh_pv=35.0)
+            res = F.run(start_point="23", t_pv=10.0, rh_pv=35.0)
             self.assertEqual(res.outcome, "complete")
-            self.assertEqual([p for _, p in F.events(res, 1)], ALL[ALL.index("25"):])
+            self.assertEqual([p for _, p in F.events(res, 1)], ALL[ALL.index("23"):])
             seq = [(d["changeID"], d["iteration"]) for _, d in F.recs(res, "BTL433ESC001RTNCHG")]
             self.assertEqual(seq[:3], [(1, 0), (10, 1), (10, 2)])
 
     def test_skip_precycle_and_bake(self):
-        res = F.run(skip_precycle=True, skip_bake=True, point_names=["1", "2", "3", "30"])
-        self.assertEqual([p for _, p in F.events(res, 2)], ["1", "2", "3", "30"])
+        res = F.run(skip_precycle=True, skip_bake=True, point_names=["1", "2", "3", "28"])
+        self.assertEqual([p for _, p in F.events(res, 2)], ["1", "2", "3", "28"])
         self.assertEqual(res.outcome, "complete")
 
     def test_first_step_rule_rise_from_humid_air_ramps_dry(self):
@@ -288,36 +288,40 @@ class DewPointHold(unittest.TestCase):
         def setup(ctrl, clock):
             seen = {}
 
-            def wet(c):   # the chamber PV reads 95 % for 3 min, one minute after point 17's set point is reached
-                if abs(c.t_set - 32.5) < 0.05:
+            def wet(c):   # the chamber PV reads 56 % for 3 min, one minute after point 13's set point is reached
+                if abs(c.t_set - 30.0) < 0.05:
                     seen.setdefault("t", clock.now)
-                    return 95.0 if 60.0 < clock.now - seen["t"] <= 240.0 else None
+                    return 56.0 if 60.0 < clock.now - seen["t"] <= 240.0 else None   # Td 20.3 C: over cap + 1, under cap + 2
                 return None
             ctrl.rh_override = wet
-        res = F.run(start_point="16", point_names=["16", "17", "18"], t_pv=20.0, rh_pv=30.0, setup=setup)
+        res = F.run(start_point="12", point_names=["12", "13", "14"], t_pv=35.0, rh_pv=30.0, setup=setup)
         self.assertEqual(res.outcome, "complete")
         holds = F.events(res, 4)
-        self.assertEqual([p for _, p in holds], ["17"])
-        t_hold, t18 = holds[0][0], F.events(res, 1)[2][0]
-        target = round(rr.rh_for_dew(22.0, 32.5), 1)
-        after = [h["set_value"] for t, h, _ in F.humidity_posts(res) if t_hold <= t < t18 and "set_value" in h]
+        self.assertEqual([p for _, p in holds], ["13"])
+        t_hold, t14 = holds[0][0], F.events(res, 1)[2][0]
+        target = round(rr.rh_for_dew(18.0, 30.0), 1)
+        after = [h["set_value"] for t, h, _ in F.humidity_posts(res) if t_hold <= t < t14 and "set_value" in h]
         self.assertTrue(after)
         self.assertAlmostEqual(after[0], target, delta=0.1)
         self.assertLessEqual(max(after), after[0])
         before = [h["set_value"] for t, h, _ in F.humidity_posts(res) if t < t_hold and "set_value" in h]
-        self.assertEqual(before[-1], 55.0)
-        rh18 = [h["set_value"] for t, h, _ in F.humidity_posts(res) if t >= t18 and "set_value" in h]
-        self.assertIn(65.0, rh18)                  # the hold ends with the point
+        self.assertEqual(before[-1], 50.0)
+        rh14 = [h["set_value"] for t, h, _ in F.humidity_posts(res) if t >= t14 and "set_value" in h]
+        self.assertIn(65.0, rh14)                  # the hold ends with the point
 
 
-    def test_dew_point_above_cap_plus_3_for_5_min_aborts_to_safe(self):
+    # Frog schedule (Calibration 3ca7f85): ABORT at cap + 2 C for 2 min, the same 2 min as the HOLD at cap + 1 C. The ABORT
+    # is evaluated first (as cycle.py:655-668), so a dew point that jumps past cap + 2 C aborts with no HOLD before it.
+    def test_dew_point_above_cap_plus_2_for_2_min_aborts_to_safe(self):
         def setup(ctrl, clock):
-            ctrl.rh_override = lambda c: 95.0 if abs(c.t_set - 32.5) < 0.05 else None   # Td 31.5 C at 32.5 C
-        res = F.run(start_point="16", point_names=["16", "17", "18"], t_pv=20.0, rh_pv=30.0, setup=setup)
+            ctrl.rh_override = lambda c: 95.0 if abs(c.t_set - 30.0) < 0.05 else None   # Td 29.1 C at 30 C
+        res = F.run(start_point="12", point_names=["12", "13", "14"], t_pv=35.0, rh_pv=30.0, setup=setup)
         self.assertEqual(res.outcome, "safe")
-        self.assertEqual([p for _, p in F.events(res, 4)], ["17"])           # the HOLD comes first
-        self.assertEqual([p for _, p in F.events(res, 7)], ["17"])
-        self.assertAlmostEqual(F.events(res, 7)[0][0] - F.events(res, 4)[0][0], 3 * 60.0, delta=21.0)
+        self.assertEqual(F.events(res, 4), [])
+        self.assertEqual([p for _, p in F.events(res, 7)], ["13"])
+        first_30 = min(t for t, cmd, j, _ in res.ctrl.posts if "temp" in (j or {}) and abs(j["temp"]["set_value"] - 30.0) < 0.05)
+        self.assertAlmostEqual(F.events(res, 7)[0][0] - first_30, 2 * 60.0, delta=21.0)
+        self.assertIn("> 21 C for 2 min", [d for _, d in F.recs(res, "BTL433ESC001RTNV8") if d["eventID"] == 7][0]["detail"])
         self.assertEqual(F.last_commands(res)[-1], ("operations/stop_chamber", {"group": "standby"}))
 
 

@@ -27,11 +27,12 @@ import _fakes as F
 from _fakes import rr
 
 T0 = 1800000000.0
-HUMID = dict(start_point="16", point_names=["16", "17", "18"], t_pv=20.0, rh_pv=30.0)   # 35/45 -> 32.5/55 -> 30/65
+HUMID = dict(start_point="12", point_names=["12", "13", "14"], t_pv=35.0, rh_pv=30.0)   # 35/35 -> 30/50 -> 25/65
+# t_pv 35 C: a ramp up from 20 C would pass 30 C, point 13's T set point, before point 13
 
 
-def t640_with(values_at_17, base=None):
-    """A T640 whose readings change once point 17's T set point (32.5 C) is in force."""
+def t640_with(values_at_13, base=None):
+    """A T640 whose readings change once point 13's T set point (30 C) is in force."""
     box = {}
 
     def setup(ctrl, clock):
@@ -40,16 +41,16 @@ def t640_with(values_at_17, base=None):
     def make(clock):
         def values(now):
             v = dict(base or {"sample_rh": 30.0, "box_t": 40.0, "asc_duty": 50.0, "fault": 0, "pm25": 5.0})
-            if abs(box["ctrl"].t_set - 32.5) < 0.05:
-                v.update(values_at_17(box["ctrl"], now))
+            if abs(box["ctrl"].t_set - 30.0) < 0.05:
+                v.update(values_at_13(box["ctrl"], now))
             return v
         return F.FakeT640(clock, values=values)
     return setup, make
 
 
-def first_at_17(res):
-    """When point 17's T set point first reached the chamber."""
-    return min(t for t, cmd, j, _ in res.ctrl.posts if "temp" in (j or {}) and abs(j["temp"]["set_value"] - 32.5) < 0.05)
+def first_at_13(res):
+    """When point 13's T set point first reached the chamber."""
+    return min(t for t, cmd, j, _ in res.ctrl.posts if "temp" in (j or {}) and abs(j["temp"]["set_value"] - 30.0) < 0.05)
 
 
 class T640Rules(unittest.TestCase):                       # must-fix 2
@@ -58,8 +59,8 @@ class T640Rules(unittest.TestCase):                       # must-fix 2
         res = F.run(setup=setup, t640=make, **HUMID)
         self.assertEqual(res.outcome, "safe")
         (t_abort, point), = F.events(res, 7)
-        self.assertEqual(point, "17")
-        self.assertAlmostEqual(t_abort - first_at_17(res), 120.0, delta=21.0)
+        self.assertEqual(point, "13")
+        self.assertAlmostEqual(t_abort - first_at_13(res), 120.0, delta=21.0)
         self.assertIn("T640 sample RH 80.0 % > 75 %", F.recs(res, "BTL433ESC001RTNV8")[-4][1]["detail"]
                       + "".join(d["detail"] for _, d in F.recs(res, "BTL433ESC001RTNV8")))
 
@@ -67,17 +68,17 @@ class T640Rules(unittest.TestCase):                       # must-fix 2
         setup, make = t640_with(lambda c, now: {"sample_rh": 65.0})
         res = F.run(setup=setup, t640=make, **HUMID)
         self.assertEqual(res.outcome, "safe")
-        self.assertAlmostEqual(F.events(res, 7)[0][0] - first_at_17(res), 300.0, delta=21.0)
+        self.assertAlmostEqual(F.events(res, 7)[0][0] - first_at_13(res), 300.0, delta=21.0)
 
     def test_sample_rh_above_45_with_the_asc_heater_saturated_holds(self):
         setup, make = t640_with(lambda c, now: {"sample_rh": 50.0, "asc_duty": 97.0})
         res = F.run(setup=setup, t640=make, **HUMID)
         self.assertEqual(res.outcome, "complete")
         holds = [(t, d["detail"]) for t, d in F.recs(res, "BTL433ESC001RTNV8") if d["eventID"] == 4]
-        self.assertEqual([p for _, p in F.events(res, 4)][0], "17")   # the timer is not reset at 18 (as cycle.py:813-815)
+        self.assertEqual([p for _, p in F.events(res, 4)][0], "13")   # the timer is not reset at 14 (as cycle.py:813-815)
         self.assertIn("T640 sample RH 50.0 % > 45 %", holds[0][1])
-        self.assertAlmostEqual(holds[0][0] - first_at_17(res), 300.0, delta=25.0)
-        target = round(rr.rh_for_dew(22.0, 32.5), 1)
+        self.assertAlmostEqual(holds[0][0] - first_at_13(res), 300.0, delta=25.0)
+        target = round(rr.rh_for_dew(18.0, 30.0), 1)
         after = [h["set_value"] for t, h, _ in F.humidity_posts(res)
                  if holds[0][0] <= t < F.events(res, 1)[2][0] and "set_value" in h]
         self.assertAlmostEqual(after[0], target, delta=0.1)
@@ -88,25 +89,25 @@ class T640Rules(unittest.TestCase):                       # must-fix 2
         self.assertEqual((res.outcome, F.events(res, 4)), ("complete", []))
 
     def test_chamber_dew_point_near_the_box_temperature_holds(self):
-        # point 17 is 32.5 C / 55 %: Td 22.3 C > box 25 C - 3 C
-        setup, make = t640_with(lambda c, now: {"box_t": 25.0} if c.humi_on else {})
+        # point 13 is 30 C / 50 %: Td 18.4 C > box 21 C - 3 C (point 12, 35 C / 35 %, is Td 17.3 C)
+        setup, make = t640_with(lambda c, now: {"box_t": 21.0} if c.humi_on else {})
         res = F.run(setup=setup, t640=make, **HUMID)
         self.assertEqual(res.outcome, "complete")
         details = [d["detail"] for _, d in F.recs(res, "BTL433ESC001RTNV8") if d["eventID"] == 4]
-        self.assertTrue(details and "T640 box T 25.0 C - 3 C" in details[0], details)
+        self.assertTrue(details and "T640 box T 21.0 C - 3 C" in details[0], details)
 
     def test_chamber_dew_point_at_the_box_temperature_aborts_at_once(self):
-        setup, make = t640_with(lambda c, now: {"box_t": 21.0} if c.rh_pv > 50.0 else {})
+        setup, make = t640_with(lambda c, now: {"box_t": 17.0} if c.rh_pv > 45.0 else {})
         res = F.run(setup=setup, t640=make, **HUMID)
         self.assertEqual(res.outcome, "safe")
-        self.assertIn(">= T640 box T 21.0 C", [d for _, d in F.recs(res, "BTL433ESC001RTNV8")
+        self.assertIn(">= T640 box T 17.0 C", [d for _, d in F.recs(res, "BTL433ESC001RTNV8")
                                                 if d["eventID"] == 7][0]["detail"])
 
     def test_fault_bit_with_sample_rh_above_45_for_5_min_aborts(self):
         setup, make = t640_with(lambda c, now: {"fault": 1, "sample_rh": 50.0})
         res = F.run(setup=setup, t640=make, **HUMID)
         self.assertEqual(res.outcome, "safe")
-        self.assertAlmostEqual(F.events(res, 7)[0][0] - first_at_17(res), 300.0, delta=21.0)
+        self.assertAlmostEqual(F.events(res, 7)[0][0] - first_at_13(res), 300.0, delta=21.0)
 
     def test_fault_bit_with_a_dry_sample_does_not_abort(self):
         setup, make = t640_with(lambda c, now: {"fault": 1, "sample_rh": 40.0})
@@ -126,10 +127,10 @@ class T640Rules(unittest.TestCase):                       # must-fix 2
         self.assertEqual(res.ctrl.posts, [])
         self.assertEqual(res.clock.now - T0 >= rr.T640_START_WAIT_S, True)
 
-    def test_without_the_t640_the_watch_points_are_12_to_21(self):      # and pre2 (16.4 C), whose check is the T640's
+    def test_without_the_t640_the_watch_points_are_12_to_14_18_19(self):  # and pre2 (16.4 C), whose check is the T640's
         points = rr.load_schedule(rr.SCHEDULE_FILE)[0]
         self.assertEqual([p.name for p in points if p.dew_point is not None and p.dew_point >= rr.WATCH_TD_C],
-                         ["pre2"] + [str(i) for i in range(12, 22)])
+                         ["pre2", "12", "13", "14", "18", "19"])
         res = F.run(t640=None, **HUMID)
         self.assertEqual(res.outcome, "complete")
         text = res.routine.watch_text(res.points[1])
